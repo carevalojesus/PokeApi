@@ -6,8 +6,7 @@ sealed interface PokedexUiState {
     data object Loading : PokedexUiState
     data class Success(
         val pokemonList: List<PokemonItem>,
-        val isLoadingMore: Boolean = false,
-        val hasMore: Boolean = true
+        val discoveredIds: Set<Int> = emptySet()
     ) : PokedexUiState
     data class Error(val message: String) : PokedexUiState
 }

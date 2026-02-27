@@ -13,8 +13,10 @@ coilCompose = "2.7.0"
 navigationCompose = "2.8.4"
 room = "2.7.0"
 ksp = "2.0.21-1.0.28"
+zxing = "4.3.0"
 
 [libraries]
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

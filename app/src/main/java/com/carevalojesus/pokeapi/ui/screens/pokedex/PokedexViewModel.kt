@@ -9,6 +9,7 @@ import com.carevalojesus.pokeapi.domain.model.PokemonItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -16,13 +17,17 @@ import kotlinx.coroutines.launch
 class PokedexViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = PokemonRepository()
-    private val favoritesRepository =
-        (application as PokeApiApplication).favoritesRepository
+    private val app = application as PokeApiApplication
+    private val favoritesRepository = app.favoritesRepository
+    private val ownedPokemonRepository = app.ownedPokemonRepository
+    private val unlockRepository = app.unlockRepository
+
+    companion object {
+        private val GEN1_IDS = (1..151).toList()
+    }
 
     private var allPokemon: List<PokemonItem> = emptyList()
-    private var currentOffset = 0
-    private var hasMore = true
-    private var isLoadingPage = false
+    private var discoveredIds: Set<Int> = emptySet()
 
     private val _uiState = MutableStateFlow<PokedexUiState>(PokedexUiState.Loading)
     val uiState: StateFlow<PokedexUiState> = _uiState
@@ -65,17 +70,15 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
     )
 
     init {
-        loadFirstPage()
+        loadAllGen1()
+        observeDiscoveredIds()
     }
 
-    private fun loadFirstPage() {
+    private fun loadAllGen1() {
         viewModelScope.launch {
             _uiState.value = PokedexUiState.Loading
             try {
-                val page = repository.getPokemonPage(offset = 0)
-                allPokemon = page.pokemon
-                currentOffset = page.pokemon.size
-                hasMore = page.hasMore
+                allPokemon = repository.getPokemonsByIds(GEN1_IDS)
                 applyFilters()
             } catch (e: Exception) {
                 _uiState.value = PokedexUiState.Error(
@@ -85,35 +88,26 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun loadNextPage() {
-        if (isLoadingPage || !hasMore) return
-        isLoadingPage = true
-        val currentState = _uiState.value
-        if (currentState is PokedexUiState.Success) {
-            _uiState.value = currentState.copy(isLoadingMore = true)
-        }
+    private fun observeDiscoveredIds() {
         viewModelScope.launch {
-            try {
-                val page = repository.getPokemonPage(offset = currentOffset)
-                allPokemon = allPokemon + page.pokemon
-                currentOffset += page.pokemon.size
-                hasMore = page.hasMore
-                applyFilters()
-            } catch (_: Exception) {
-                if (currentState is PokedexUiState.Success) {
-                    _uiState.value = currentState.copy(isLoadingMore = false)
+            combine(
+                ownedPokemonRepository.getAllPokemonIdsFlow(),
+                unlockRepository.getAllIdsFlow()
+            ) { ownedIds, unlockedIds ->
+                (ownedIds + unlockedIds).toSet()
+            }.collect { ids ->
+                discoveredIds = ids
+                // Solo actualizar si ya tenemos datos cargados
+                if (allPokemon.isNotEmpty()) {
+                    applyFilters()
                 }
-            } finally {
-                isLoadingPage = false
             }
         }
     }
 
     fun loadPokemonList() {
-        currentOffset = 0
-        hasMore = true
         allPokemon = emptyList()
-        loadFirstPage()
+        loadAllGen1()
     }
 
     fun onSearchQueryChange(query: String) {
@@ -144,8 +138,13 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
 
         if (query.isNotBlank()) {
             filtered = filtered.filter { pokemon ->
-                pokemon.name.contains(query, ignoreCase = true) ||
+                // Solo buscar por nombre en los descubiertos, por ID en todos
+                if (pokemon.id in discoveredIds) {
+                    pokemon.name.contains(query, ignoreCase = true) ||
+                        pokemon.id.toString() == query
+                } else {
                     pokemon.id.toString() == query
+                }
             }
         }
 
@@ -157,8 +156,7 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
 
         _uiState.value = PokedexUiState.Success(
             pokemonList = filtered,
-            isLoadingMore = false,
-            hasMore = hasMore
+            discoveredIds = discoveredIds
         )
     }
 }

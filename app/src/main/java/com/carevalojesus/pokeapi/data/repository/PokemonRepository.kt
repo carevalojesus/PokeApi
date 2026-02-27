@@ -84,6 +84,32 @@ class PokemonRepository {
         )
     }
 
+    suspend fun getPokemonsByIds(ids: List<Int>): List<PokemonItem> = coroutineScope {
+        ids.map { id ->
+            async {
+                try {
+                    val detail = api.getPokemonDetail(id)
+                    val species = try { api.getPokemonSpecies(id) } catch (_: Exception) { null }
+                    val spanishName = species?.names
+                        ?.firstOrNull { it.language.name == "es" }?.name
+                        ?: detail.name.replaceFirstChar { it.uppercase() }
+                    PokemonItem(
+                        id = id,
+                        name = spanishName,
+                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png",
+                        types = detail.types.map { it.type.name }
+                    )
+                } catch (_: Exception) {
+                    PokemonItem(
+                        id = id,
+                        name = "Pokemon #$id",
+                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
+                    )
+                }
+            }
+        }.awaitAll().sortedBy { it.id }
+    }
+
     suspend fun getPokemonDetail(id: Int): PokemonDetail = coroutineScope {
         val detailDeferred = async { api.getPokemonDetail(id) }
         val speciesDeferred = async { api.getPokemonSpecies(id) }
@@ -112,6 +138,7 @@ class PokemonRepository {
             types = response.types.map { typeSlot ->
                 typeTranslations[typeSlot.type.name] ?: typeSlot.type.name.replaceFirstChar { it.uppercase() }
             },
+            rawTypes = response.types.map { it.type.name },
             imageUrl = response.sprites.other?.officialArtwork?.frontDefault
                 ?: response.sprites.frontDefault ?: "",
             stats = response.stats.map { statSlot ->

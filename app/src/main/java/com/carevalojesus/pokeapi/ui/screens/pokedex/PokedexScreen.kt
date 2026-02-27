@@ -1,6 +1,5 @@
 package com.carevalojesus.pokeapi.ui.screens.pokedex
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -40,15 +37,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -66,33 +62,11 @@ fun PokedexScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedType by viewModel.selectedType.collectAsState()
     val favoriteIds by viewModel.favoriteIds.collectAsState()
-    val gridState = rememberLazyGridState()
-
-    // Detect scroll near end for pagination
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val layoutInfo = gridState.layoutInfo
-            val totalItems = layoutInfo.totalItemsCount
-            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            totalItems > 0 && lastVisibleItem >= totalItems - 4
-        }
-    }
-
-    LaunchedEffect(shouldLoadMore) {
-        snapshotFlow { shouldLoadMore }.collect { load ->
-            if (load) {
-                val state = uiState
-                if (state is PokedexUiState.Success && state.hasMore && !state.isLoadingMore) {
-                    viewModel.loadNextPage()
-                }
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Pokédex") },
+                title = { Text("Pokedex") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -110,7 +84,7 @@ fun PokedexScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                placeholder = { Text("Buscar por nombre o número...") },
+                placeholder = { Text("Buscar por nombre o numero...") },
                 leadingIcon = {
                     Icon(Icons.Default.Search, contentDescription = "Buscar")
                 },
@@ -124,7 +98,6 @@ fun PokedexScreen(
                 singleLine = true
             )
 
-            // Type filter chips
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -191,33 +164,24 @@ fun PokedexScreen(
                         }
                     } else {
                         LazyVerticalGrid(
-                            state = gridState,
                             columns = GridCells.Fixed(2),
                             contentPadding = PaddingValues(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(state.pokemonList) { pokemon ->
+                                val isDiscovered = pokemon.id in state.discoveredIds
                                 PokemonCard(
                                     pokemon = pokemon,
-                                    onClick = { onPokemonClick(pokemon.id) },
+                                    isDiscovered = isDiscovered,
+                                    onClick = {
+                                        if (isDiscovered) onPokemonClick(pokemon.id)
+                                    },
                                     isFavorite = favoriteIds.contains(pokemon.id),
-                                    onFavoriteToggle = { viewModel.toggleFavorite(pokemon.id) }
-                                )
-                            }
-                            if (state.isLoadingMore) {
-                                item(span = { GridItemSpan(maxLineSpan) }) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(32.dp)
-                                        )
+                                    onFavoriteToggle = {
+                                        if (isDiscovered) viewModel.toggleFavorite(pokemon.id)
                                     }
-                                }
+                                )
                             }
                         }
                     }
@@ -230,22 +194,67 @@ fun PokedexScreen(
 @Composable
 fun PokemonCard(
     pokemon: PokemonItem,
+    isDiscovered: Boolean,
     onClick: () -> Unit,
     isFavorite: Boolean = false,
     onFavoriteToggle: () -> Unit = {}
 ) {
-    val typeColor = pokemon.types.firstOrNull()?.let { pokemonTypeColors[it] }
-    val cardColor = typeColor?.copy(alpha = 0.7f) ?: CardDefaults.cardColors().containerColor
-    val animatedColor by animateColorAsState(targetValue = cardColor, label = "cardColor")
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = animatedColor)
-    ) {
-        Box {
+    if (isDiscovered) {
+        // Card neutral sin color de tipo
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Box {
+                Column(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AsyncImage(
+                        model = pokemon.imageUrl,
+                        contentDescription = pokemon.name,
+                        modifier = Modifier.size(120.dp)
+                    )
+                    Text(
+                        text = "#${pokemon.id}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = pokemon.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                IconButton(
+                    onClick = onFavoriteToggle,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Filled.Favorite
+                        else Icons.Outlined.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Quitar favorito" else "Agregar favorito",
+                        tint = if (isFavorite) Color.Red
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    } else {
+        // Card sombreada / silueta
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(0.6f),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF2A2A2A)
+            )
+        ) {
             Column(
                 modifier = Modifier
                     .padding(8.dp)
@@ -254,34 +263,23 @@ fun PokemonCard(
             ) {
                 AsyncImage(
                     model = pokemon.imageUrl,
-                    contentDescription = pokemon.name,
-                    modifier = Modifier.size(120.dp)
+                    contentDescription = "Pokemon no descubierto",
+                    modifier = Modifier.size(120.dp),
+                    colorFilter = ColorFilter.tint(
+                        color = Color(0xFF1A1A1A),
+                        blendMode = BlendMode.SrcAtop
+                    )
                 )
                 Text(
                     text = "#${pokemon.id}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (typeColor != null) Color.White.copy(alpha = 0.8f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.Gray
                 )
                 Text(
-                    text = pokemon.name,
+                    text = "???",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
-                    color = if (typeColor != null) Color.White
-                    else Color.Unspecified
-                )
-            }
-            IconButton(
-                onClick = onFavoriteToggle,
-                modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Filled.Favorite
-                    else Icons.Outlined.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Quitar favorito" else "Agregar favorito",
-                    tint = if (isFavorite) Color.Red
-                    else if (typeColor != null) Color.White.copy(alpha = 0.7f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.Gray
                 )
             }
         }
