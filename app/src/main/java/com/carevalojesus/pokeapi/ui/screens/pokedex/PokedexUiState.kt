@@ -4,6 +4,10 @@ import com.carevalojesus.pokeapi.domain.model.PokemonItem
 
 sealed interface PokedexUiState {
     data object Loading : PokedexUiState
-    data class Success(val pokemonList: List<PokemonItem>) : PokedexUiState
+    data class Success(
+        val pokemonList: List<PokemonItem>,
+        val isLoadingMore: Boolean = false,
+        val hasMore: Boolean = true
+    ) : PokedexUiState
     data class Error(val message: String) : PokedexUiState
 }

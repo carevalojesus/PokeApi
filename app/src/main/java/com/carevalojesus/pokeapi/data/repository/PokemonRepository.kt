@@ -3,8 +3,10 @@ package com.carevalojesus.pokeapi.data.repository
 import com.carevalojesus.pokeapi.data.remote.RetrofitClient
 import com.carevalojesus.pokeapi.domain.model.PokemonDetail
 import com.carevalojesus.pokeapi.domain.model.PokemonItem
+import com.carevalojesus.pokeapi.domain.model.PokemonPage
 import com.carevalojesus.pokeapi.domain.model.Stat
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 class PokemonRepository {
@@ -51,6 +53,35 @@ class PokemonRepository {
                 imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
             )
         }
+    }
+
+    suspend fun getPokemonPage(offset: Int, limit: Int = 20): PokemonPage = coroutineScope {
+        val response = api.getPokemonList(limit = limit, offset = offset)
+        val items = response.results.map { entry ->
+            val id = entry.url.trimEnd('/').split("/").last().toInt()
+            async {
+                try {
+                    val detail = api.getPokemonDetail(id)
+                    PokemonItem(
+                        id = id,
+                        name = entry.name.replaceFirstChar { it.uppercase() },
+                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png",
+                        types = detail.types.map { it.type.name }
+                    )
+                } catch (_: Exception) {
+                    PokemonItem(
+                        id = id,
+                        name = entry.name.replaceFirstChar { it.uppercase() },
+                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
+                    )
+                }
+            }
+        }.awaitAll()
+        PokemonPage(
+            pokemon = items,
+            totalCount = response.count,
+            hasMore = offset + limit < response.count
+        )
     }
 
     suspend fun getPokemonDetail(id: Int): PokemonDetail = coroutineScope {
