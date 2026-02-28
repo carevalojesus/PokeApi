@@ -9,5 +9,7 @@ data class OwnedPokemonEntity(
     val pokemonId: Int,
     val nickname: String = "",
     val obtainedAt: Long = System.currentTimeMillis(),
-    val isStarter: Boolean = false
+    val isStarter: Boolean = false,
+    val obtainedVia: String = "",
+    val isNewFromTrade: Boolean = false
 )

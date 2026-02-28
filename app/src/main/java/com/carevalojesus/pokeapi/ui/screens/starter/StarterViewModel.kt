@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class StarterOption(
@@ -19,6 +20,7 @@ class StarterViewModel(application: Application) : AndroidViewModel(application)
     private val app = application as PokeApiApplication
     private val userRepository = app.userRepository
     private val ownedPokemonRepository = app.ownedPokemonRepository
+    private val unlockRepository = app.unlockRepository
 
     val starters = listOf(
         StarterOption(1, "Bulbasaur", "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png"),
@@ -59,6 +61,9 @@ class StarterViewModel(application: Application) : AndroidViewModel(application)
                 nickname = finalNickname,
                 isStarter = true
             )
+            val ownedCount = ownedPokemonRepository.getAll().first().size
+            val unlockedCount = unlockRepository.getAll().first().size
+            app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
             onComplete()
         }
     }

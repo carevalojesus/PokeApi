@@ -1,6 +1,10 @@
 package com.carevalojesus.pokeapi.ui.screens.trade
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,11 +39,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.carevalojesus.pokeapi.util.PokemonNames
 import java.net.URLDecoder
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,7 +65,12 @@ fun TradeConfirmScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Confirmar intercambio") },
+                title = {
+                    Text(
+                        if (tradeOffer?.isConfirmation == true) "Confirmacion"
+                        else "Oferta de intercambio"
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -79,10 +95,16 @@ fun TradeConfirmScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (tradeOffer == null) {
+                Spacer(modifier = Modifier.height(32.dp))
                 Text(
-                    text = "Error: QR invalido",
+                    text = "QR invalido",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.error
+                )
+                Text(
+                    text = "No se pudo leer la informacion del intercambio",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedButton(onClick = onBack) {
                     Text("Volver")
@@ -92,31 +114,154 @@ fun TradeConfirmScreen(
 
             when (val state = uiState) {
                 is TradeUiState.QrGenerated -> {
-                    // Show confirmation QR for peer A to scan
-                    Text(
-                        text = "Intercambio aceptado!",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Text(
-                        text = "Muestra este QR al otro entrenador para completar el intercambio",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Image(
-                        bitmap = state.bitmap.asImageBitmap(),
-                        contentDescription = "QR de confirmacion",
-                        modifier = Modifier.size(280.dp)
-                    )
-                    Button(
-                        onClick = onComplete,
-                        modifier = Modifier.fillMaxWidth()
+                    // B accepted, show confirmation QR for A
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = scaleIn() + fadeIn()
                     ) {
-                        Text("Finalizar")
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                text = "Intercambio aceptado!",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            // Show what B received
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = PokemonNames.getImageUrl(tradeOffer.offerPokemonId),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = "Recibiste a ${tradeOffer.offerPokemonName.ifEmpty { PokemonNames.getName(tradeOffer.offerPokemonId) }}!",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Se agrego a tu coleccion",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Ahora muestra este QR al otro entrenador para que reciba su Pokemon",
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // QR code in a nice frame
+                            Card(
+                                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Box(modifier = Modifier.padding(16.dp)) {
+                                    Image(
+                                        bitmap = state.bitmap.asImageBitmap(),
+                                        contentDescription = "QR de confirmacion",
+                                        modifier = Modifier.size(260.dp)
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = onComplete,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Finalizar")
+                            }
+                        }
+                    }
+                }
+
+                is TradeUiState.TradeSuccess -> {
+                    // A completed from confirmation - celebration
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = scaleIn() + fadeIn()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                text = "Intercambio completado!",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(180.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primaryContainer,
+                                                MaterialTheme.colorScheme.surface
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = PokemonNames.getImageUrl(state.receivedPokemonId),
+                                    contentDescription = state.receivedPokemonName,
+                                    modifier = Modifier.size(140.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Obtuviste a ${state.receivedPokemonName}!",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "#${state.receivedPokemonId}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Se agrego a tu coleccion y Pokedex",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Button(
+                                onClick = onComplete,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Continuar")
+                            }
+                        }
                     }
                 }
 
                 is TradeUiState.Error -> {
+                    Spacer(modifier = Modifier.height(16.dp))
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
@@ -129,88 +274,140 @@ fun TradeConfirmScreen(
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
-                    OutlinedButton(onClick = onBack) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text("Volver")
                     }
                 }
 
+                is TradeUiState.Creating -> {
+                    Spacer(modifier = Modifier.height(48.dp))
+                    androidx.compose.material3.CircularProgressIndicator()
+                    Text(
+                        text = "Procesando intercambio...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 else -> {
                     if (tradeOffer.isConfirmation) {
-                        // This is a confirmation QR scanned by peer A
+                        // A scanned B's confirmation QR
                         Text(
-                            text = "Confirmacion de intercambio",
-                            style = MaterialTheme.typography.headlineSmall
+                            text = "Confirmacion recibida",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "El otro entrenador acepto tu intercambio",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
 
-                        Row(
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Trade visualization
+                        TradeVisualization(
+                            leftPokemonId = tradeOffer.requestPokemonId,
+                            leftPokemonName = tradeOffer.requestPokemonName,
+                            leftLabel = "Recibiras",
+                            rightPokemonId = tradeOffer.offerPokemonId,
+                            rightPokemonName = tradeOffer.offerPokemonName,
+                            rightLabel = "Compartiste"
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Card(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            PokemonTradeCard(
-                                pokemonId = tradeOffer.offerPokemonId,
-                                label = "Recibiras"
-                            )
                             Text(
-                                text = "↔",
-                                style = MaterialTheme.typography.headlineLarge
-                            )
-                            PokemonTradeCard(
-                                pokemonId = tradeOffer.requestPokemonId,
-                                label = "Entregaras"
+                                text = "Tu Pokemon se queda contigo. Solo recibiras una copia del Pokemon del otro entrenador.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Button(
-                            onClick = {
-                                viewModel.completeTradeFromConfirmation(tradeOffer)
-                                onComplete()
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = { viewModel.completeTradeFromConfirmation(tradeOffer) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Completar intercambio")
+                            Text(
+                                text = "Completar intercambio",
+                                style = MaterialTheme.typography.titleSmall
+                            )
                         }
                     } else {
-                        // This is a trade offer QR scanned by peer B
+                        // B sees A's offer
                         Text(
                             text = "Oferta de intercambio",
-                            style = MaterialTheme.typography.headlineSmall
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Un entrenador quiere intercambiar contigo",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
 
-                        Row(
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Trade visualization
+                        TradeVisualization(
+                            leftPokemonId = tradeOffer.offerPokemonId,
+                            leftPokemonName = tradeOffer.offerPokemonName,
+                            leftLabel = "Te comparte",
+                            rightPokemonId = tradeOffer.requestPokemonId,
+                            rightPokemonName = tradeOffer.requestPokemonName,
+                            rightLabel = "Quiere de ti"
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Card(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            PokemonTradeCard(
-                                pokemonId = tradeOffer.offerPokemonId,
-                                label = "Te ofrecen"
-                            )
                             Text(
-                                text = "↔",
-                                style = MaterialTheme.typography.headlineLarge
-                            )
-                            PokemonTradeCard(
-                                pokemonId = tradeOffer.requestPokemonId,
-                                label = "Te piden"
+                                text = "Tu Pokemon se queda contigo. Solo compartes una copia con el otro entrenador.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Button(
                             onClick = { viewModel.acceptTrade(tradeOffer) },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Aceptar intercambio")
+                            Text(
+                                text = "Aceptar intercambio",
+                                style = MaterialTheme.typography.titleSmall
+                            )
                         }
 
                         OutlinedButton(
                             onClick = onBack,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("Rechazar")
                         }
@@ -222,30 +419,92 @@ fun TradeConfirmScreen(
 }
 
 @Composable
-private fun PokemonTradeCard(pokemonId: Int, label: String) {
-    val imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$pokemonId.png"
+private fun TradeVisualization(
+    leftPokemonId: Int,
+    leftPokemonName: String,
+    leftLabel: String,
+    rightPokemonId: Int,
+    rightPokemonName: String,
+    rightLabel: String
+) {
     Card(
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = "Pokemon #$pokemonId",
-                modifier = Modifier.size(80.dp)
+            TradePokemonDisplay(
+                pokemonId = leftPokemonId,
+                pokemonName = leftPokemonName,
+                label = leftLabel
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "#$pokemonId",
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "↔",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            TradePokemonDisplay(
+                pokemonId = rightPokemonId,
+                pokemonName = rightPokemonName,
+                label = rightLabel
             )
         }
+    }
+}
+
+@Composable
+private fun TradePokemonDisplay(pokemonId: Int, pokemonName: String, label: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = PokemonNames.getImageUrl(pokemonId),
+                contentDescription = pokemonName,
+                modifier = Modifier.size(80.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = pokemonName.ifEmpty { PokemonNames.getName(pokemonId) },
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "#$pokemonId",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

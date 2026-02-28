@@ -20,4 +20,7 @@ interface FavoriteDao {
 
     @Query("DELETE FROM favorites WHERE pokemonId = :pokemonId")
     suspend fun remove(pokemonId: Int)
+
+    @Query("DELETE FROM favorites")
+    suspend fun deleteAll()
 }

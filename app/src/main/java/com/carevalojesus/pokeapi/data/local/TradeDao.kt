@@ -21,4 +21,7 @@ interface TradeDao {
 
     @Update
     suspend fun update(entity: TradeEntity)
+
+    @Query("DELETE FROM trades")
+    suspend fun deleteAll()
 }

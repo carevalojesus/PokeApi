@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -57,6 +58,9 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
                     if (unlockId != null) {
                         unlockRepository.unlock(unlockId)
                         ownedPokemonRepository.add(unlockId)
+                        val ownedCount = ownedPokemonRepository.getAll().first().size
+                        val unlockedCount = unlockRepository.getAll().first().size
+                        app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
                         val unlockDetail = try {
                             repository.getPokemonDetail(unlockId)
                         } catch (_: Exception) {

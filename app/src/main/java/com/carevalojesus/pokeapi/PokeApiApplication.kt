@@ -2,11 +2,14 @@ package com.carevalojesus.pokeapi
 
 import android.app.Application
 import com.carevalojesus.pokeapi.data.local.PokeDatabase
+import com.carevalojesus.pokeapi.data.firebase.FirebaseRepository
 import com.carevalojesus.pokeapi.data.repository.FavoritesRepository
 import com.carevalojesus.pokeapi.data.repository.OwnedPokemonRepository
 import com.carevalojesus.pokeapi.data.repository.TradeRepository
 import com.carevalojesus.pokeapi.data.repository.UnlockRepository
 import com.carevalojesus.pokeapi.data.repository.UserRepository
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class PokeApiApplication : Application() {
 
@@ -16,4 +19,18 @@ class PokeApiApplication : Application() {
     val ownedPokemonRepository by lazy { OwnedPokemonRepository(database.ownedPokemonDao()) }
     val unlockRepository by lazy { UnlockRepository(database.unlockedPokemonDao()) }
     val tradeRepository by lazy { TradeRepository(database.tradeDao()) }
+    val firebaseRepository by lazy {
+        FirebaseRepository(
+            firestore = FirebaseFirestore.getInstance(),
+            auth = FirebaseAuth.getInstance()
+        )
+    }
+
+    suspend fun clearAllLocalData() {
+        database.userProfileDao().deleteAll()
+        database.ownedPokemonDao().deleteAll()
+        database.unlockedPokemonDao().deleteAll()
+        database.tradeDao().deleteAll()
+        database.favoriteDao().deleteAll()
+    }
 }

@@ -14,12 +14,20 @@ class OwnedPokemonRepository(private val dao: OwnedPokemonDao) {
 
     suspend fun owns(pokemonId: Int): Boolean = dao.owns(pokemonId)
 
-    suspend fun add(pokemonId: Int, nickname: String = "", isStarter: Boolean = false) {
+    suspend fun add(
+        pokemonId: Int,
+        nickname: String = "",
+        isStarter: Boolean = false,
+        obtainedVia: String = "",
+        isNewFromTrade: Boolean = false
+    ) {
         dao.insert(
             OwnedPokemonEntity(
                 pokemonId = pokemonId,
                 nickname = nickname,
-                isStarter = isStarter
+                isStarter = isStarter,
+                obtainedVia = obtainedVia,
+                isNewFromTrade = isNewFromTrade
             )
         )
     }
@@ -27,6 +35,17 @@ class OwnedPokemonRepository(private val dao: OwnedPokemonDao) {
     suspend fun removeOneByPokemonId(pokemonId: Int): Boolean {
         val entity = dao.getFirstTradeableByPokemonId(pokemonId) ?: return false
         dao.deleteById(entity.id)
+        return true
+    }
+
+    suspend fun markTradeSeen(entityId: Int) {
+        dao.markTradeSeen(entityId)
+    }
+
+    suspend fun changeStarter(newStarterEntityId: Int): Boolean {
+        val entity = dao.getById(newStarterEntityId) ?: return false
+        dao.clearAllStarterFlags()
+        dao.setStarterFlag(entity.id)
         return true
     }
 }

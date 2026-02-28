@@ -5,6 +5,8 @@ data class TradeOffer(
     val fromUserId: String,
     val offerPokemonId: Int,
     val requestPokemonId: Int,
+    val offerPokemonName: String = "",
+    val requestPokemonName: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val nonce: String = "",
     val isConfirmation: Boolean = false

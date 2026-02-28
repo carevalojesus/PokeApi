@@ -1,24 +1,32 @@
 package com.carevalojesus.pokeapi.ui.screens.trade
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,17 +46,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.carevalojesus.pokeapi.util.PokemonNames
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TradeScreen(
     onNavigateToScan: () -> Unit,
+    onNavigateToRewardScan: () -> Unit,
     viewModel: TradeViewModel = viewModel()
 ) {
     val tradeablePokemon by viewModel.tradeablePokemon.collectAsState(initial = emptyList())
@@ -78,28 +92,141 @@ fun TradeScreen(
         ) {
             when (val state = uiState) {
                 is TradeUiState.QrGenerated -> {
-                    // Show generated QR
+                    // Trade summary + QR
+                    val offer = state.tradeOffer
                     Text(
                         text = "Muestra este QR al otro entrenador",
                         style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    // Visual summary of the trade
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TradePreviewCard(
+                                pokemonId = offer.offerPokemonId,
+                                pokemonName = offer.offerPokemonName,
+                                label = "Compartes"
+                            )
+                            Text(
+                                text = "↔",
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            TradePreviewCard(
+                                pokemonId = offer.requestPokemonId,
+                                pokemonName = offer.requestPokemonName,
+                                label = "Recibes"
+                            )
+                        }
+                    }
+
+                    // QR code
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            bitmap = state.bitmap.asImageBitmap(),
-                            contentDescription = "QR de intercambio",
-                            modifier = Modifier.size(280.dp)
-                        )
+                        Card(
+                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(16.dp)) {
+                                Image(
+                                    bitmap = state.bitmap.asImageBitmap(),
+                                    contentDescription = "QR de intercambio",
+                                    modifier = Modifier.size(260.dp)
+                                )
+                            }
+                        }
                     }
+
+                    Text(
+                        text = "Nadie pierde su Pokemon. Ambos reciben una copia del Pokemon del otro.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     OutlinedButton(
                         onClick = { viewModel.resetState() },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Volver")
+                    }
+                }
+
+                is TradeUiState.TradeSuccess -> {
+                    // Success celebration
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = scaleIn() + fadeIn()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                text = "Intercambio exitoso!",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(180.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primaryContainer,
+                                                MaterialTheme.colorScheme.surface
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = PokemonNames.getImageUrl(state.receivedPokemonId),
+                                    contentDescription = state.receivedPokemonName,
+                                    modifier = Modifier.size(140.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Obtuviste a ${state.receivedPokemonName}!",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "#${state.receivedPokemonId}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Button(
+                                onClick = { viewModel.resetState() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Continuar")
+                            }
+                        }
                     }
                 }
 
@@ -127,49 +254,76 @@ fun TradeScreen(
                 else -> {
                     // Create trade form
                     Text(
-                        text = "Selecciona el Pokemon a ofrecer",
-                        style = MaterialTheme.typography.titleMedium
+                        text = "Selecciona tu Pokemon",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
 
                     if (tradeablePokemon.isEmpty()) {
-                        Text(
-                            text = "No tienes Pokemon disponibles para intercambiar",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Text(
+                                text = "No tienes Pokemon disponibles para intercambiar",
+                                modifier = Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     } else {
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(tradeablePokemon) { pokemon ->
                                 val isSelected = selectedPokemonId == pokemon.pokemonId
-                                val imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemon.pokemonId}.png"
+                                val name = pokemon.nickname.ifEmpty {
+                                    PokemonNames.getName(pokemon.pokemonId)
+                                }
                                 Card(
                                     modifier = Modifier
+                                        .width(100.dp)
                                         .clickable { selectedPokemonId = pokemon.pokemonId }
                                         .then(
                                             if (isSelected) Modifier.border(
-                                                2.dp,
+                                                3.dp,
                                                 MaterialTheme.colorScheme.primary,
                                                 RoundedCornerShape(12.dp)
                                             ) else Modifier
                                         ),
                                     elevation = CardDefaults.cardElevation(
-                                        defaultElevation = if (isSelected) 6.dp else 2.dp
+                                        defaultElevation = if (isSelected) 8.dp else 2.dp
+                                    ),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected)
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface
                                     )
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(8.dp),
+                                        modifier = Modifier
+                                            .padding(8.dp)
+                                            .fillMaxWidth(),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         AsyncImage(
-                                            model = imageUrl,
-                                            contentDescription = "#${pokemon.pokemonId}",
-                                            modifier = Modifier.size(64.dp)
+                                            model = PokemonNames.getImageUrl(pokemon.pokemonId),
+                                            contentDescription = name,
+                                            modifier = Modifier.size(72.dp)
+                                        )
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1
                                         )
                                         Text(
                                             text = "#${pokemon.pokemonId}",
-                                            style = MaterialTheme.typography.bodySmall
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -177,58 +331,50 @@ fun TradeScreen(
                         }
                     }
 
+                    // Requested Pokemon section
+                    Text(
+                        text = "Pokemon que deseas",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
                     OutlinedTextField(
                         value = requestedIdText,
                         onValueChange = { requestedIdText = it.filter { c -> c.isDigit() } },
-                        label = { Text("ID del Pokemon solicitado") },
+                        label = { Text("Numero del Pokemon (1-151)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
 
-                    Button(
-                        onClick = {
-                            val requestedId = requestedIdText.toIntOrNull() ?: 0
-                            if (selectedPokemonId > 0 && requestedId > 0) {
-                                viewModel.createTradeOffer(selectedPokemonId, requestedId)
-                            }
-                        },
-                        enabled = selectedPokemonId > 0 && requestedIdText.isNotEmpty()
-                                && uiState !is TradeUiState.Creating,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            if (uiState is TradeUiState.Creating) "Generando..."
-                            else "Generar QR de intercambio"
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onNavigateToScan,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Escanear QR de intercambio")
-                    }
-
-                    // Trade history
-                    if (trades.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Historial de intercambios",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        trades.forEach { trade ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    // Real-time preview of requested Pokemon
+                    val requestedId = requestedIdText.toIntOrNull()
+                    if (requestedId != null && requestedId in 1..151) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
+                                AsyncImage(
+                                    model = PokemonNames.getImageUrl(requestedId),
+                                    contentDescription = PokemonNames.getName(requestedId),
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
                                     Text(
-                                        text = "Ofrecido: #${trade.offeredPokemonId} ↔ Recibido: #${trade.requestedPokemonId}",
-                                        style = MaterialTheme.typography.bodyMedium
+                                        text = PokemonNames.getName(requestedId),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Estado: ${trade.status}",
+                                        text = "#$requestedId",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -236,8 +382,207 @@ fun TradeScreen(
                             }
                         }
                     }
+
+                    // Trade summary before generating
+                    if (selectedPokemonId > 0 && requestedId != null && requestedId in 1..151) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Resumen del intercambio",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AsyncImage(
+                                            model = PokemonNames.getImageUrl(selectedPokemonId),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(56.dp)
+                                        )
+                                        Text(
+                                            text = PokemonNames.getName(selectedPokemonId),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Text(
+                                        text = "↔",
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AsyncImage(
+                                            model = PokemonNames.getImageUrl(requestedId),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(56.dp)
+                                        )
+                                        Text(
+                                            text = PokemonNames.getName(requestedId),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val reqId = requestedIdText.toIntOrNull() ?: 0
+                            if (selectedPokemonId > 0 && reqId > 0) {
+                                viewModel.createTradeOffer(selectedPokemonId, reqId)
+                            }
+                        },
+                        enabled = selectedPokemonId > 0 && requestedIdText.isNotEmpty()
+                                && uiState !is TradeUiState.Creating,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (uiState is TradeUiState.Creating) "Generando..."
+                            else "Generar QR de intercambio",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToScan,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "Escanear QR de intercambio",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToRewardScan,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "Escanear QR de recompensa",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    // Info card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Text(
+                            text = "El intercambio es seguro: nadie pierde su Pokemon. " +
+                                    "Ambos entrenadores reciben una copia del Pokemon del otro.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Trade history
+                    if (trades.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Historial de intercambios",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        trades.forEach { trade ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = PokemonNames.getImageUrl(trade.offeredPokemonId),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(40.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "↔",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    AsyncImage(
+                                        model = PokemonNames.getImageUrl(trade.requestedPokemonId),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(40.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${PokemonNames.getName(trade.offeredPokemonId)} ↔ ${PokemonNames.getName(trade.requestedPokemonId)}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = if (trade.status == "completed") "Completado" else "Pendiente",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (trade.status == "completed")
+                                                Color(0xFF4CAF50)
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TradePreviewCard(pokemonId: Int, pokemonName: String, label: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = PokemonNames.getImageUrl(pokemonId),
+            contentDescription = pokemonName,
+            modifier = Modifier.size(80.dp)
+        )
+        Text(
+            text = pokemonName.ifEmpty { PokemonNames.getName(pokemonId) },
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

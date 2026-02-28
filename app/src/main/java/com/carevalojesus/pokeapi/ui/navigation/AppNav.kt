@@ -5,14 +5,23 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -20,53 +29,175 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.carevalojesus.pokeapi.PokeApiApplication
+import com.carevalojesus.pokeapi.ui.screens.admin.AdminScreen
+import com.carevalojesus.pokeapi.ui.screens.auth.AdminAuthScreen
+import com.carevalojesus.pokeapi.ui.screens.auth.AuthUiState
+import com.carevalojesus.pokeapi.ui.screens.auth.AuthViewModel
+import com.carevalojesus.pokeapi.ui.screens.auth.TrainerAuthScreen
+import com.carevalojesus.pokeapi.ui.screens.auth.WelcomeScreen
+import com.carevalojesus.pokeapi.ui.screens.profile.ProfileSetupScreen
 import com.carevalojesus.pokeapi.ui.screens.detail.PokemonDetailScreen
 import com.carevalojesus.pokeapi.ui.screens.home.HomeScreen
+import com.carevalojesus.pokeapi.ui.screens.reward.RewardClaimScreen
+import com.carevalojesus.pokeapi.ui.screens.reward.RewardScanScreen
 import com.carevalojesus.pokeapi.ui.screens.starter.StarterScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeConfirmScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeScanScreen
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 @Composable
-fun AppNav() {
-    val context = LocalContext.current
-    val app = context.applicationContext as PokeApiApplication
-    val profileState by app.userRepository.getProfile()
-        .map { profile ->
-            when {
-                profile == null -> ProfileCheckState.NoProfile
-                !profile.starterChosen -> ProfileCheckState.NeedsStarter
-                else -> ProfileCheckState.Ready
-            }
-        }
-        .collectAsState(initial = ProfileCheckState.Loading)
+fun AppNav(
+    authViewModel: AuthViewModel = viewModel()
+) {
+    val authState by authViewModel.uiState.collectAsState()
 
-    when (profileState) {
-        ProfileCheckState.Loading -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+    when (val state = authState) {
+        AuthUiState.Loading -> LoadingState("Validando sesion...")
+
+        AuthUiState.LoggedOut -> AuthNav(
+            authViewModel = authViewModel,
+            errorMessage = null
+        )
+
+        is AuthUiState.Error -> AuthNav(
+            authViewModel = authViewModel,
+            errorMessage = state.message
+        )
+
+        AuthUiState.Admin -> AdminScreen(
+            onLogout = authViewModel::signOut
+        )
+
+        AuthUiState.Trainer -> TrainerAppNav(
+            onLogout = authViewModel::signOut
+        )
+    }
+}
+
+@Composable
+private fun AuthNav(
+    authViewModel: AuthViewModel,
+    errorMessage: String?
+) {
+    val authNavController = rememberNavController()
+
+    NavHost(navController = authNavController, startDestination = "welcome") {
+        composable(route = "welcome") {
+            WelcomeScreen(
+                onNavigateToTrainerLogin = {
+                    authNavController.navigate("trainer_auth/false")
+                },
+                onNavigateToTrainerRegister = {
+                    authNavController.navigate("trainer_auth/true")
+                },
+                onNavigateToAdminLogin = {
+                    authNavController.navigate("admin_auth")
+                }
+            )
         }
 
-        ProfileCheckState.NoProfile, ProfileCheckState.NeedsStarter, ProfileCheckState.Ready -> {
-            val startDestination = if (profileState == ProfileCheckState.Ready) "home" else "starter"
-            AppNavContent(startDestination = startDestination)
+        composable(
+            route = "trainer_auth/{isRegister}",
+            arguments = listOf(navArgument("isRegister") { type = NavType.BoolType })
+        ) { backStackEntry ->
+            val isRegister = backStackEntry.arguments?.getBoolean("isRegister") ?: false
+            TrainerAuthScreen(
+                isRegisterMode = isRegister,
+                onLogin = { email, password ->
+                    authViewModel.clearError()
+                    authViewModel.signInTrainer(email, password)
+                },
+                onRegister = { email, password ->
+                    authViewModel.clearError()
+                    authViewModel.registerTrainer(email, password)
+                },
+                onBack = { authNavController.popBackStack() },
+                errorMessage = errorMessage
+            )
+        }
+
+        composable(route = "admin_auth") {
+            AdminAuthScreen(
+                onLogin = { email, password ->
+                    authViewModel.clearError()
+                    authViewModel.signInAdmin(email, password)
+                },
+                onBack = { authNavController.popBackStack() },
+                errorMessage = errorMessage
+            )
         }
     }
 }
 
-private enum class ProfileCheckState {
-    Loading, NoProfile, NeedsStarter, Ready
+@Composable
+private fun TrainerAppNav(onLogout: () -> Unit) {
+    val context = LocalContext.current
+    val app = context.applicationContext as? PokeApiApplication
+    val profileState by produceState<ProfileCheckState>(
+        initialValue = ProfileCheckState.Loading,
+        key1 = app
+    ) {
+        if (app == null) {
+            value = ProfileCheckState.Error("No se pudo inicializar la aplicacion.")
+            return@produceState
+        }
+        app.userRepository.getProfile()
+            .map { profile ->
+                when {
+                    profile == null -> ProfileCheckState.NeedsProfileSetup
+                    profile.firstName.isBlank() -> ProfileCheckState.NeedsProfileSetup
+                    !profile.starterChosen -> ProfileCheckState.NeedsStarter
+                    else -> ProfileCheckState.Ready
+                }
+            }
+            .catch { error ->
+                value = ProfileCheckState.Error(
+                    error.message ?: "Error cargando perfil inicial."
+                )
+            }
+            .collect { state ->
+                value = state
+            }
+    }
+
+    when (profileState) {
+        ProfileCheckState.Loading -> LoadingState("Cargando...")
+        is ProfileCheckState.Error -> ErrorState((profileState as ProfileCheckState.Error).message)
+        ProfileCheckState.NeedsProfileSetup, ProfileCheckState.NeedsStarter, ProfileCheckState.Ready -> {
+            val startDestination = when (profileState) {
+                ProfileCheckState.NeedsProfileSetup -> "profile_setup"
+                ProfileCheckState.NeedsStarter -> "starter"
+                else -> "home"
+            }
+            TrainerNavContent(startDestination = startDestination, onLogout = onLogout)
+        }
+    }
+}
+
+private sealed interface ProfileCheckState {
+    data object Loading : ProfileCheckState
+    data object NeedsProfileSetup : ProfileCheckState
+    data object NeedsStarter : ProfileCheckState
+    data object Ready : ProfileCheckState
+    data class Error(val message: String) : ProfileCheckState
 }
 
 @Composable
-private fun AppNavContent(startDestination: String) {
+private fun TrainerNavContent(startDestination: String, onLogout: () -> Unit) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = startDestination) {
+        composable(route = "profile_setup") {
+            ProfileSetupScreen(
+                onComplete = {
+                    navController.navigate("starter") {
+                        popUpTo("profile_setup") { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(route = "starter") {
             StarterScreen(
                 onStarterChosen = {
@@ -84,6 +215,12 @@ private fun AppNavContent(startDestination: String) {
                 },
                 onNavigateToTradeScan = {
                     navController.navigate("trade/scan")
+                },
+                onNavigateToRewardScan = {
+                    navController.navigate("reward/scan")
+                },
+                onLogout = {
+                    onLogout()
                 }
             )
         }
@@ -143,6 +280,64 @@ private fun AppNavContent(startDestination: String) {
                     navController.popBackStack("home", inclusive = false)
                 },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(route = "reward/scan") {
+            RewardScanScreen(
+                onPayloadScanned = { payload ->
+                    navController.navigate("reward/claim/$payload")
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = "reward/claim/{payload}",
+            arguments = listOf(navArgument("payload") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val payload = backStackEntry.arguments?.getString("payload") ?: ""
+            RewardClaimScreen(
+                payload = payload,
+                onDone = { navController.popBackStack("home", inclusive = false) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingState(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(message)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ErrorState(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error
             )
         }
     }

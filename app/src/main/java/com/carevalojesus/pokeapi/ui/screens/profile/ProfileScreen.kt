@@ -22,9 +22,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -33,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -40,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,13 +60,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import java.io.File
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.Period
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
+    onLogout: () -> Unit,
     viewModel: ProfileViewModel = viewModel()
 ) {
     val profile by viewModel.profile.collectAsState(initial = null)
@@ -234,6 +243,13 @@ fun ProfileScreen(
                     }
                 }
             }
+
+            Button(
+                onClick = onLogout,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cerrar sesion")
+            }
         }
     }
 
@@ -268,6 +284,7 @@ private fun EditProfileDialog(
     var birthDate by remember { mutableStateOf(initialBirthDate) }
     var gender by remember { mutableStateOf(initialGender) }
     var genderExpanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     val genderOptions = listOf("Masculino", "Femenino", "Otro")
 
@@ -292,11 +309,19 @@ private fun EditProfileDialog(
                 )
                 OutlinedTextField(
                     value = birthDate,
-                    onValueChange = { birthDate = it },
+                    onValueChange = {},
+                    readOnly = true,
                     label = { Text("Fecha de nacimiento") },
                     placeholder = { Text("DD/MM/AAAA") },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Seleccionar fecha")
+                        }
+                    },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker = true }
                 )
                 ExposedDropdownMenuBox(
                     expanded = genderExpanded,
@@ -340,6 +365,33 @@ private fun EditProfileDialog(
             }
         }
     )
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                            birthDate = sdf.format(Date(millis))
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Aceptar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancelar")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }
 
 private fun calculateAge(birthDate: String): Int? {

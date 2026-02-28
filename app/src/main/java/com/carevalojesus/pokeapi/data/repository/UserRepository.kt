@@ -37,4 +37,16 @@ class UserRepository(private val dao: UserProfileDao) {
         ensureProfileExists()
         dao.updateProfilePhoto(uri)
     }
+
+    suspend fun getStarterChangesRemaining(): Int {
+        ensureProfileExists()
+        return dao.getStarterChangesRemaining() ?: 3
+    }
+
+    suspend fun changeStarter(pokemonId: Int): Boolean {
+        val remaining = dao.getStarterChangesRemaining() ?: 3
+        if (remaining <= 0) return false
+        dao.changeStarter(pokemonId)
+        return true
+    }
 }

@@ -13,5 +13,6 @@ data class UserProfileEntity(
     val lastName: String = "",
     val birthDate: String = "",
     val gender: String = "",
-    val profilePhotoUri: String = ""
+    val profilePhotoUri: String = "",
+    val starterChangesRemaining: Int = 3
 )

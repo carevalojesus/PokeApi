@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         UnlockedPokemonEntity::class,
         TradeEntity::class
     ],
-    version = 3
+    version = 4
 )
 abstract class PokeDatabase : RoomDatabase() {
 
@@ -34,7 +34,7 @@ abstract class PokeDatabase : RoomDatabase() {
                     PokeDatabase::class.java,
                     "poke_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = instance
                 instance

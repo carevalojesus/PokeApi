@@ -26,6 +26,7 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     fun savePersonalInfo(firstName: String, lastName: String, birthDate: String, gender: String) {
         viewModelScope.launch {
             app.userRepository.updatePersonalInfo(firstName, lastName, birthDate, gender)
+            app.firebaseRepository.updateTrainerPersonalInfo(firstName, lastName, birthDate, gender)
         }
     }
 

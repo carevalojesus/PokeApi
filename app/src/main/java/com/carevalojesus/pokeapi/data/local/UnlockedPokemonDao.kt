@@ -20,4 +20,7 @@ interface UnlockedPokemonDao {
 
     @Query("SELECT pokemonId FROM unlocked_pokemon")
     fun getAllIdsFlow(): Flow<List<Int>>
+
+    @Query("DELETE FROM unlocked_pokemon")
+    suspend fun deleteAll()
 }
