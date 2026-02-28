@@ -54,6 +54,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,7 +121,10 @@ fun ProfileSetupScreen(
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (photoPath.isNotEmpty() && File(photoPath).exists()) {
+            val photoExists = remember(photoPath) {
+                photoPath.isNotEmpty() && File(photoPath).exists()
+            }
+            if (photoExists) {
                 AsyncImage(
                     model = File(photoPath),
                     contentDescription = "Foto de perfil",
@@ -231,6 +235,7 @@ fun ProfileSetupScreen(
                     onClick = {
                         datePickerState.selectedDateMillis?.let { millis ->
                             val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                            sdf.timeZone = TimeZone.getTimeZone("UTC")
                             birthDate = sdf.format(Date(millis))
                         }
                         showDatePicker = false

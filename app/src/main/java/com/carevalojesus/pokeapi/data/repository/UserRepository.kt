@@ -1,11 +1,15 @@
 package com.carevalojesus.pokeapi.data.repository
 
+import com.carevalojesus.pokeapi.data.firebase.FirebaseRepository
 import com.carevalojesus.pokeapi.data.local.UserProfileDao
 import com.carevalojesus.pokeapi.data.local.UserProfileEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
-class UserRepository(private val dao: UserProfileDao) {
+class UserRepository(
+    private val dao: UserProfileDao,
+    private val firebaseRepository: FirebaseRepository
+) {
 
     fun getProfile(): Flow<UserProfileEntity?> = dao.getProfile()
 
@@ -24,23 +28,48 @@ class UserRepository(private val dao: UserProfileDao) {
 
     suspend fun addPointsAndGetTotal(amount: Int): Int {
         ensureProfileExists()
-        dao.addPoints(amount)
-        return dao.getPoints() ?: 0
+        val total = firebaseRepository.addTrainerPoints(amount)
+        dao.setPoints(total)
+        return total
     }
 
     suspend fun addPoints(amount: Int) {
         ensureProfileExists()
-        dao.addPoints(amount)
+        val total = firebaseRepository.addTrainerPoints(amount)
+        dao.setPoints(total)
     }
 
     suspend fun getPoints(): Int {
-        return dao.getPoints() ?: 0
+        ensureProfileExists()
+        val total = firebaseRepository.getTrainerPoints()
+        dao.setPoints(total)
+        return total
     }
 
     suspend fun spendPoints(amount: Int): Boolean {
         ensureProfileExists()
         if (amount <= 0) return true
-        return dao.spendPoints(amount) > 0
+        val (success, total) = firebaseRepository.spendTrainerPoints(amount)
+        dao.setPoints(total)
+        return success
+    }
+
+    suspend fun refundPoints(amount: Int) {
+        if (amount <= 0) return
+        val total = firebaseRepository.addTrainerPoints(amount)
+        dao.setPoints(total)
+    }
+
+    suspend fun syncPointsFromRemote(): Int {
+        ensureProfileExists()
+        val total = firebaseRepository.getTrainerPoints()
+        dao.setPoints(total)
+        return total
+    }
+
+    suspend fun setLocalPoints(points: Int) {
+        ensureProfileExists()
+        dao.setPoints(points)
     }
 
     suspend fun updatePersonalInfo(firstName: String, lastName: String, birthDate: String, gender: String) {

@@ -35,9 +35,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.CompoundBarcodeView
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,7 +55,7 @@ fun RewardScanScreen(
                     == PackageManager.PERMISSION_GRANTED
         )
     }
-    var scanned by remember { mutableStateOf(false) }
+    val scanned = remember { AtomicBoolean(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -115,9 +118,11 @@ fun RewardScanScreen(
                     factory = { ctx ->
                         CompoundBarcodeView(ctx).apply {
                             decodeContinuous { result ->
-                                if (!scanned && result.text != null) {
-                                    scanned = true
-                                    onPayloadScanned(URLEncoder.encode(result.text, "UTF-8"))
+                                if (result.text != null && scanned.compareAndSet(false, true)) {
+                                    val encoded = URLEncoder.encode(result.text, "UTF-8")
+                                    Handler(Looper.getMainLooper()).post {
+                                        onPayloadScanned(encoded)
+                                    }
                                 }
                             }
                             barcodeView = this

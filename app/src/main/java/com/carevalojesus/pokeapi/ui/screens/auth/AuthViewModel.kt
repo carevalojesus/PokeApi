@@ -37,6 +37,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError
 
+    private val _resetEmailSent = MutableStateFlow(false)
+    val resetEmailSent: StateFlow<Boolean> = _resetEmailSent
+
     init {
         refreshSession()
     }
@@ -48,7 +51,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val role = firebaseRepository.resolveCurrentUserRole()
                 _uiState.value = when (role) {
                     AppUserRole.ADMIN -> AuthUiState.Admin
-                    AppUserRole.TRAINER -> AuthUiState.Trainer
+                    AppUserRole.TRAINER -> {
+                        runCatching { app.syncProgressFromFirebase() }
+                        AuthUiState.Trainer
+                    }
                     null -> AuthUiState.LoggedOut
                 }
             } catch (e: Exception) {
@@ -86,6 +92,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             }
             _isAuthenticating.value = false
             missionRepository.onDailyLogin()
+            runCatching { app.syncProgressFromFirebase() }
             _uiState.value = AuthUiState.Trainer
         }
     }
@@ -114,6 +121,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             }
             _isAuthenticating.value = false
             missionRepository.onDailyLogin()
+            runCatching { app.syncProgressFromFirebase() }
             _uiState.value = AuthUiState.Trainer
         }
     }
@@ -152,6 +160,30 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             _authError.value = null
             _uiState.value = AuthUiState.LoggedOut
         }
+    }
+
+    fun sendPasswordReset(email: String) {
+        viewModelScope.launch {
+            _isAuthenticating.value = true
+            _authError.value = null
+            val normalized = email.trim().lowercase()
+            if (!isValidEmail(normalized)) {
+                _authError.value = "Ingresa un correo electronico valido"
+                _isAuthenticating.value = false
+                return@launch
+            }
+            val result = firebaseRepository.sendPasswordResetEmail(normalized)
+            if (result.isFailure) {
+                _authError.value = result.exceptionOrNull()?.message ?: "Error al enviar correo"
+            } else {
+                _resetEmailSent.value = true
+            }
+            _isAuthenticating.value = false
+        }
+    }
+
+    fun clearResetEmailSent() {
+        _resetEmailSent.value = false
     }
 
     fun clearError() {

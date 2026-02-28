@@ -6,11 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
 import com.carevalojesus.pokeapi.data.firebase.CampaignInfo
+import com.carevalojesus.pokeapi.data.firebase.TrainerRewardClaim
 import com.carevalojesus.pokeapi.data.firebase.TrainerWithInventory
 import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeEncoder
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed interface AdminUiState {
@@ -20,7 +23,8 @@ sealed interface AdminUiState {
         val campaignId: String,
         val campaignName: String,
         val payload: String,
-        val bitmap: Bitmap
+        val bitmap: Bitmap,
+        val isNewlyCreated: Boolean = true
     ) : AdminUiState
     data class Error(val message: String) : AdminUiState
 }
@@ -33,8 +37,8 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow<AdminUiState>(AdminUiState.Idle)
     val uiState: StateFlow<AdminUiState> = _uiState
 
-    private val _trainers = MutableStateFlow<List<TrainerWithInventory>>(emptyList())
-    val trainers: StateFlow<List<TrainerWithInventory>> = _trainers
+    val trainers: StateFlow<List<TrainerWithInventory>> = firebaseRepository.observeTrainersWithInventory()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _campaigns = MutableStateFlow<List<CampaignInfo>>(emptyList())
     val campaigns: StateFlow<List<CampaignInfo>> = _campaigns
@@ -42,17 +46,27 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
     private val _broadcastStatus = MutableStateFlow<String?>(null)
     val broadcastStatus: StateFlow<String?> = _broadcastStatus
 
-    fun refreshTrainers() {
+    private val _trainerRewards = MutableStateFlow<List<TrainerRewardClaim>>(emptyList())
+    val trainerRewards: StateFlow<List<TrainerRewardClaim>> = _trainerRewards
+
+    private val _trainerHistoryLoading = MutableStateFlow(false)
+    val trainerHistoryLoading: StateFlow<Boolean> = _trainerHistoryLoading
+
+    fun loadTrainerHistory(trainerUid: String) {
         viewModelScope.launch {
-            val result = firebaseRepository.getTrainersWithInventory()
+            _trainerHistoryLoading.value = true
+            _trainerRewards.value = emptyList()
+            val result = firebaseRepository.getTrainerRewardHistory(trainerUid)
             if (result.isSuccess) {
-                _trainers.value = result.getOrDefault(emptyList())
-            } else {
-                _uiState.value = AdminUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo cargar entrenadores"
-                )
+                _trainerRewards.value = result.getOrDefault(emptyList())
             }
+            _trainerHistoryLoading.value = false
         }
+    }
+
+    fun refreshTrainers() {
+        // Los entrenadores se actualizan en tiempo real via snapshot listener.
+        // Este método se mantiene por compatibilidad con la UI.
     }
 
     fun refreshCampaigns() {
@@ -125,7 +139,8 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
                 campaignId = campaign.campaignId,
                 campaignName = campaign.name,
                 payload = payload,
-                bitmap = bitmap
+                bitmap = bitmap,
+                isNewlyCreated = false
             )
         }
     }
@@ -144,6 +159,10 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearBroadcastStatus() {
         _broadcastStatus.value = null
+    }
+
+    fun resetUiState() {
+        _uiState.value = AdminUiState.Idle
     }
 
     fun clearMessage() {

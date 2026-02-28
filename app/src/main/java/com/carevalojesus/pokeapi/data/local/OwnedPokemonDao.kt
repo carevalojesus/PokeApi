@@ -3,6 +3,7 @@ package com.carevalojesus.pokeapi.data.local
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,8 +39,17 @@ interface OwnedPokemonDao {
     @Query("UPDATE owned_pokemon SET isStarter = 1 WHERE id = :id")
     suspend fun setStarterFlag(id: Int)
 
+    @Transaction
+    suspend fun changeStarterTransaction(newStarterId: Int) {
+        clearAllStarterFlags()
+        setStarterFlag(newStarterId)
+    }
+
     @Query("SELECT * FROM owned_pokemon WHERE id = :id LIMIT 1")
     suspend fun getById(id: Int): OwnedPokemonEntity?
+
+    @Query("SELECT COUNT(*) FROM owned_pokemon WHERE pokemonId = :pokemonId")
+    suspend fun countByPokemonId(pokemonId: Int): Int
 
     @Query("DELETE FROM owned_pokemon")
     suspend fun deleteAll()

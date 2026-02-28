@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         requestNotificationsPermissionIfNeeded()
         enableEdgeToEdge()
         setContent {
-            PokeApiTheme(darkTheme = false, dynamicColor = false) {
+            PokeApiTheme(darkTheme = false) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

@@ -1,10 +1,12 @@
 package com.carevalojesus.pokeapi.data.repository
 
+import android.util.Log
 import com.carevalojesus.pokeapi.data.remote.RetrofitClient
 import com.carevalojesus.pokeapi.domain.model.PokemonDetail
 import com.carevalojesus.pokeapi.domain.model.PokemonItem
 import com.carevalojesus.pokeapi.domain.model.PokemonPage
 import com.carevalojesus.pokeapi.domain.model.Stat
+import com.carevalojesus.pokeapi.util.PokemonNames
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -57,35 +59,39 @@ class PokemonRepository {
 
     suspend fun getPokemonList(limit: Int = 20, offset: Int = 0): List<PokemonItem> {
         val response = api.getPokemonList(limit = limit, offset = offset)
-        return response.results.map { entry ->
-            val id = entry.url.trimEnd('/').split("/").last().toInt()
+        return response.results.mapNotNull { entry ->
+            val id = entry.url.trimEnd('/').split("/").last().toIntOrNull() ?: return@mapNotNull null
             PokemonItem(
                 id = id,
                 name = entry.name.replaceFirstChar { it.uppercase() },
-                imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
+                imageUrl = PokemonNames.getImageUrl(id)
             )
         }
     }
 
     suspend fun getPokemonPage(offset: Int, limit: Int = 20): PokemonPage = coroutineScope {
+        val semaphore = Semaphore(typeConcurrencyLimit)
         val response = api.getPokemonList(limit = limit, offset = offset)
-        val items = response.results.map { entry ->
-            val id = entry.url.trimEnd('/').split("/").last().toInt()
+        val items = response.results.mapNotNull { entry ->
+            val id = entry.url.trimEnd('/').split("/").last().toIntOrNull() ?: return@mapNotNull null
             async {
-                try {
-                    val detail = api.getPokemonDetail(id)
-                    PokemonItem(
-                        id = id,
-                        name = entry.name.replaceFirstChar { it.uppercase() },
-                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png",
-                        types = detail.types.map { it.type.name }
-                    )
-                } catch (_: Exception) {
-                    PokemonItem(
-                        id = id,
-                        name = entry.name.replaceFirstChar { it.uppercase() },
-                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
-                    )
+                semaphore.withPermit {
+                    try {
+                        val detail = api.getPokemonDetail(id)
+                        PokemonItem(
+                            id = id,
+                            name = entry.name.replaceFirstChar { it.uppercase() },
+                            imageUrl = PokemonNames.getImageUrl(id),
+                            types = detail.types.map { it.type.name }
+                        )
+                    } catch (e: Exception) {
+                        Log.w("PokemonRepository", "Failed to fetch detail for #$id", e)
+                        PokemonItem(
+                            id = id,
+                            name = entry.name.replaceFirstChar { it.uppercase() },
+                            imageUrl = PokemonNames.getImageUrl(id)
+                        )
+                    }
                 }
             }
         }.awaitAll()
@@ -97,22 +103,26 @@ class PokemonRepository {
     }
 
     suspend fun getPokemonsByIds(ids: List<Int>): List<PokemonItem> = coroutineScope {
+        val semaphore = Semaphore(typeConcurrencyLimit)
         ids.map { id ->
             async {
-                try {
-                    val detail = api.getPokemonDetail(id)
-                    PokemonItem(
-                        id = id,
-                        name = detail.name.replaceFirstChar { it.uppercase() },
-                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png",
-                        types = detail.types.map { it.type.name }
-                    )
-                } catch (_: Exception) {
-                    PokemonItem(
-                        id = id,
-                        name = "Pokemon #$id",
-                        imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
-                    )
+                semaphore.withPermit {
+                    try {
+                        val detail = api.getPokemonDetail(id)
+                        PokemonItem(
+                            id = id,
+                            name = detail.name.replaceFirstChar { it.uppercase() },
+                            imageUrl = PokemonNames.getImageUrl(id),
+                            types = detail.types.map { it.type.name }
+                        )
+                    } catch (e: Exception) {
+                        Log.w("PokemonRepository", "Failed to fetch detail for #$id", e)
+                        PokemonItem(
+                            id = id,
+                            name = "Pokemon #$id",
+                            imageUrl = PokemonNames.getImageUrl(id)
+                        )
+                    }
                 }
             }
         }.awaitAll().sortedBy { it.id }
@@ -133,7 +143,8 @@ class PokemonRepository {
                         val types = detail.types.map { it.type.name }
                         pokemonTypesCache[pokemon.id] = types
                         pokemon.copy(types = types)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w("PokemonRepository", "Failed to fetch types for #${pokemon.id}", e)
                         pokemon
                     }
                 }

@@ -26,9 +26,13 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
         private val GEN1_IDS = (1..151).toList()
     }
 
+    @Volatile
     private var allPokemon: List<PokemonItem> = emptyList()
+    @Volatile
     private var discoveredIds: Set<Int> = emptySet()
+    @Volatile
     private var areTypesLoaded = false
+    @Volatile
     private var isLoadingTypes = false
 
     private val _uiState = MutableStateFlow<PokedexUiState>(PokedexUiState.Loading)

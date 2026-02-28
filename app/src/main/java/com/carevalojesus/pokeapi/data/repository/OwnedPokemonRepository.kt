@@ -44,8 +44,18 @@ class OwnedPokemonRepository(private val dao: OwnedPokemonDao) {
 
     suspend fun changeStarter(newStarterEntityId: Int): Boolean {
         val entity = dao.getById(newStarterEntityId) ?: return false
-        dao.clearAllStarterFlags()
-        dao.setStarterFlag(entity.id)
+        dao.changeStarterTransaction(entity.id)
         return true
     }
+
+    suspend fun countByPokemonId(pokemonId: Int): Int = dao.countByPokemonId(pokemonId)
 }
+
+data class AggregatedPokemon(
+    val pokemonId: Int,
+    val count: Int,
+    val isStarter: Boolean,
+    val nickname: String,
+    val hasNewFromTrade: Boolean,
+    val representativeId: Int
+)

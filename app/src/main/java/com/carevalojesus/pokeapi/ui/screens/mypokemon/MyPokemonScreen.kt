@@ -45,7 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.carevalojesus.pokeapi.data.local.OwnedPokemonEntity
+import com.carevalojesus.pokeapi.data.repository.AggregatedPokemon
 import com.carevalojesus.pokeapi.util.PokemonNames
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -54,11 +54,11 @@ fun MyPokemonScreen(
     onPokemonClick: (Int) -> Unit,
     viewModel: MyPokemonViewModel = viewModel()
 ) {
-    val ownedPokemon by viewModel.ownedPokemon.collectAsState(initial = emptyList())
+    val aggregatedPokemon by viewModel.aggregatedPokemon.collectAsState()
     val profile by viewModel.profile.collectAsState(initial = null)
     val starterChangeResult by viewModel.starterChangeResult.collectAsState()
 
-    var pokemonToChangeStarter by remember { mutableStateOf<OwnedPokemonEntity?>(null) }
+    var pokemonToChangeStarter by remember { mutableStateOf<AggregatedPokemon?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(starterChangeResult) {
@@ -94,7 +94,7 @@ fun MyPokemonScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        if (ownedPokemon.isEmpty()) {
+        if (aggregatedPokemon.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -118,7 +118,7 @@ fun MyPokemonScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                items(ownedPokemon, key = { it.id }) { pokemon ->
+                items(aggregatedPokemon, key = { it.pokemonId }) { pokemon ->
                     val name = pokemon.nickname.ifEmpty {
                         PokemonNames.getName(pokemon.pokemonId)
                     }
@@ -128,9 +128,6 @@ fun MyPokemonScreen(
                             .heightIn(min = 160.dp)
                             .combinedClickable(
                                 onClick = {
-                                    if (pokemon.isNewFromTrade) {
-                                        viewModel.markTradeSeen(pokemon.id)
-                                    }
                                     onPokemonClick(pokemon.pokemonId)
                                 },
                                 onLongClick = {
@@ -145,6 +142,18 @@ fun MyPokemonScreen(
                         )
                     ) {
                         Box(modifier = Modifier.fillMaxWidth()) {
+                            // Quantity badge (top-start)
+                            if (pokemon.count > 1) {
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(6.dp)
+                                ) {
+                                    Text("x${pokemon.count}")
+                                }
+                            }
+
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -179,7 +188,7 @@ fun MyPokemonScreen(
                                 }
                             }
 
-                            // Badges
+                            // Badges (top-end)
                             Column(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -193,7 +202,7 @@ fun MyPokemonScreen(
                                         Text("Principal")
                                     }
                                 }
-                                if (pokemon.isNewFromTrade) {
+                                if (pokemon.hasNewFromTrade) {
                                     Badge(
                                         containerColor = MaterialTheme.colorScheme.tertiary
                                     ) {
@@ -262,7 +271,7 @@ fun MyPokemonScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.changeStarter(pokemon.id, pokemon.pokemonId)
+                        viewModel.changeStarter(pokemon.representativeId, pokemon.pokemonId)
                         pokemonToChangeStarter = null
                     },
                     enabled = remaining > 0

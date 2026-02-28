@@ -57,6 +57,7 @@ dependencies {
     implementation(libs.retrofit.converter.gson)
     // Coil (carga de imágenes)
     implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
     // Navigation Compose
     implementation(libs.androidx.navigation.compose)
     // Room
@@ -67,6 +68,7 @@ dependencies {
     implementation(libs.zxing.android.embedded)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.storage)
     implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -91,7 +91,11 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = { tabNavController.navigate("tab_notifications") }) {
+                    IconButton(onClick = {
+                        tabNavController.navigate("tab_notifications") {
+                            launchSingleTop = true
+                        }
+                    }) {
                         BadgedBox(
                             badge = {
                                 if (unreadCount > 0) {
@@ -146,6 +150,10 @@ fun HomeScreen(
                             indicatorColor = SenatiSkyBlue
                         ),
                         onClick = {
+                            val currentRoute = navBackStackEntry?.destination?.route
+                            if (currentRoute == "tab_market" || currentRoute == "tab_notifications") {
+                                tabNavController.popBackStack()
+                            }
                             tabNavController.navigate(tab.route) {
                                 popUpTo(tabNavController.graph.findStartDestination().id) {
                                     saveState = true

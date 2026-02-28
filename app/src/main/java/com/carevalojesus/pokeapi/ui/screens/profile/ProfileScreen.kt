@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
@@ -38,7 +39,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -57,11 +61,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.carevalojesus.pokeapi.data.local.PointEventEntity
+import com.carevalojesus.pokeapi.data.local.TradeEntity
 import com.carevalojesus.pokeapi.data.repository.MarketplaceCategory
 import com.carevalojesus.pokeapi.data.repository.MarketplaceCatalog
+import com.carevalojesus.pokeapi.util.PokemonNames
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -69,6 +77,7 @@ import java.time.format.DateTimeFormatter
 import java.time.Period
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,13 +89,17 @@ fun ProfileScreen(
     val ownedPokemon by viewModel.ownedPokemon.collectAsState(initial = emptyList())
     val unlockedPokemon by viewModel.unlockedPokemon.collectAsState(initial = emptyList())
     val trades by viewModel.trades.collectAsState(initial = emptyList())
+    val pointEvents by viewModel.pointEvents.collectAsState()
     val equippedItems by viewModel.equippedMarketplaceItems.collectAsState(initial = emptyList())
+    val passwordChangeState by viewModel.passwordChangeState.collectAsState()
+    val email = viewModel.userEmail
 
     val points = profile?.points ?: 0
     val pointsToNext = 10 - (points % 10)
     val progressInCycle = (points % 10) / 10f
 
     var showEditDialog by remember { mutableStateOf(false) }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
 
     val equippedTitle = equippedItems.firstOrNull { it.category == MarketplaceCategory.TITLE }
     val equippedAvatar = equippedItems.firstOrNull { it.category == MarketplaceCategory.AVATAR }
@@ -143,6 +156,9 @@ fun ProfileScreen(
         ) {
             // Foto de perfil
             val photoPath = profile?.profilePhotoUri ?: ""
+            val photoExists = remember(photoPath) {
+                photoPath.isNotEmpty() && File(photoPath).exists()
+            }
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -156,7 +172,7 @@ fun ProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (photoPath.isNotEmpty() && File(photoPath).exists()) {
+                if (photoExists) {
                     AsyncImage(
                         model = File(photoPath),
                         contentDescription = "Foto de perfil",
@@ -197,6 +213,13 @@ fun ProfileScreen(
                         style = MaterialTheme.typography.headlineSmall
                     )
                 }
+                if (email.isNotEmpty()) {
+                    Text(
+                        text = email,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (equippedTitle != null) {
                     Text(
                         text = equippedTitle.name,
@@ -208,7 +231,7 @@ fun ProfileScreen(
                 val age = calculateAge(p.birthDate)
                 val infoItems = buildList {
                     if (p.gender.isNotEmpty()) add(p.gender)
-                    if (age != null) add("$age anos")
+                    if (age != null) add("$age años")
                     else if (p.birthDate.isNotEmpty()) add(p.birthDate)
                 }
                 if (infoItems.isNotEmpty()) {
@@ -297,6 +320,24 @@ fun ProfileScreen(
                 StatCard(label = "Intercambios", value = "${trades.size}")
             }
 
+            // Historial
+            if (trades.isNotEmpty() || pointEvents.isNotEmpty()) {
+                Text(
+                    text = "Historial",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+
+            // Historial de intercambios
+            if (trades.isNotEmpty()) {
+                TradeHistoryCard(trades = trades)
+            }
+
+            // Historial de puntos
+            if (pointEvents.isNotEmpty()) {
+                PointEventsHistoryCard(pointEvents = pointEvents)
+            }
+
             // ID de entrenador
             profile?.let {
                 Card(
@@ -318,13 +359,35 @@ fun ProfileScreen(
                 }
             }
 
+            OutlinedButton(
+                onClick = { showChangePasswordDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cambiar contraseña")
+            }
+
             Button(
                 onClick = onLogout,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
             ) {
                 Text("Cerrar sesión")
             }
         }
+    }
+
+    // Dialogo de cambiar contraseña
+    if (showChangePasswordDialog) {
+        ChangePasswordDialog(
+            state = passwordChangeState,
+            onChangePassword = { current, new_ -> viewModel.changePassword(current, new_) },
+            onDismiss = {
+                showChangePasswordDialog = false
+                viewModel.resetPasswordChangeState()
+            }
+        )
     }
 
     // Dialogo de edicion
@@ -449,6 +512,7 @@ private fun EditProfileDialog(
                     onClick = {
                         datePickerState.selectedDateMillis?.let { millis ->
                             val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                            sdf.timeZone = TimeZone.getTimeZone("UTC")
                             birthDate = sdf.format(Date(millis))
                         }
                         showDatePicker = false
@@ -479,6 +543,106 @@ private fun calculateAge(birthDate: String): Int? {
 }
 
 @Composable
+internal fun ChangePasswordDialog(
+    state: PasswordChangeState,
+    onChangePassword: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    val isLoading = state is PasswordChangeState.Loading
+    val validationError = when {
+        newPassword.isNotEmpty() && newPassword.length < 6 -> "La nueva contraseña debe tener al menos 6 caracteres"
+        confirmPassword.isNotEmpty() && newPassword != confirmPassword -> "Las contraseñas no coinciden"
+        else -> null
+    }
+    val canSubmit = currentPassword.isNotBlank() && newPassword.length >= 6 &&
+            newPassword == confirmPassword && !isLoading
+
+    if (state is PasswordChangeState.Success) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Contraseña actualizada") },
+            text = { Text("Tu contraseña se ha cambiado correctamente.") },
+            confirmButton = {
+                TextButton(onClick = onDismiss) { Text("Aceptar") }
+            }
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text("Cambiar contraseña") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    label = { Text("Contraseña actual") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = { Text("Nueva contraseña") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirmar nueva contraseña") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (validationError != null) {
+                    Text(
+                        text = validationError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (state is PasswordChangeState.Error) {
+                    Text(
+                        text = state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .align(Alignment.CenterHorizontally),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onChangePassword(currentPassword, newPassword) }, enabled = canSubmit) {
+                Text("Cambiar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
 private fun StatCard(label: String, value: String) {
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -496,6 +660,140 @@ private fun StatCard(label: String, value: String) {
                 text = label,
                 style = MaterialTheme.typography.bodySmall
             )
+        }
+    }
+}
+
+@Composable
+private fun TradeHistoryCard(trades: List<TradeEntity>) {
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+    var expanded by remember { mutableStateOf(false) }
+    val displayTrades = if (expanded) trades else trades.take(3)
+
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Intercambios (${trades.size})",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            displayTrades.forEach { trade ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${PokemonNames.getName(trade.offeredPokemonId)} -> ${PokemonNames.getName(trade.requestedPokemonId)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = dateFormat.format(Date(trade.createdAt)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                if (trade.status == "completed")
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (trade.status == "completed") "Completado" else trade.status,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+            if (trades.size > 3) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text(if (expanded) "Ver menos" else "Ver todos (${trades.size})")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PointEventsHistoryCard(pointEvents: List<PointEventEntity>) {
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+    var expanded by remember { mutableStateOf(false) }
+    val displayEvents = if (expanded) pointEvents else pointEvents.take(5)
+
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Puntos ganados (${pointEvents.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "+${pointEvents.sumOf { it.pointsAwarded }} pts",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            displayEvents.forEach { event ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = event.category,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = dateFormat.format(Date(event.createdAt)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = "+${event.pointsAwarded}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            if (pointEvents.size > 5) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text(if (expanded) "Ver menos" else "Ver todos (${pointEvents.size})")
+                }
+            }
         }
     }
 }

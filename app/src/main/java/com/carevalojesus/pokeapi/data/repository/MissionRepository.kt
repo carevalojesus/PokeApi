@@ -30,97 +30,109 @@ class MissionRepository(
         if (pokemonId <= 0) return noAward()
 
         var totalAwarded = 0
-        totalAwarded += awardOnce(
+        val unlockedIds = mutableListOf<Int>()
+        val firstAward = awardOnce(
             eventKey = "view_pokemon_$pokemonId",
             category = "view_pokemon",
             points = pointsConfig.viewPokemonUnique
         )
+        totalAwarded += firstAward.first
+        unlockedIds += firstAward.second
 
-        val uniqueViewed = pointEventDao.countByPrefix("view_pokemon_")
+        val uniqueViewed = firebaseRepository.countMissionEventsByPrefix("view_pokemon_")
         if (uniqueViewed > 0 && uniqueViewed % 10 == 0) {
-            totalAwarded += awardOnce(
+            val milestoneAward = awardOnce(
                 eventKey = "view_milestone_$uniqueViewed",
                 category = "view_milestone",
                 points = pointsConfig.viewMilestone10
             )
+            totalAwarded += milestoneAward.first
+            unlockedIds += milestoneAward.second
         }
 
-        return finalizeAward(totalAwarded)
+        return finalizeAward(totalAwarded, unlockedIds.distinct())
     }
 
     suspend fun onTradeCompleted(tradeId: String, side: String): MissionAwardResult {
         if (tradeId.isBlank()) return noAward()
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "trade_${side}_$tradeId",
             category = "trade",
             points = pointsConfig.tradeCompleted
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
     suspend fun onRewardQrScanned(campaignId: String): MissionAwardResult {
         if (campaignId.isBlank()) return noAward()
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "reward_scan_$campaignId",
             category = "reward_scan",
             points = pointsConfig.rewardQrScan
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
     suspend fun onDailyLogin(): MissionAwardResult {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "daily_login_$today",
             category = "daily_login",
             points = pointsConfig.dailyLogin
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
     suspend fun onProfileCompleted(): MissionAwardResult {
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "profile_completed_once",
             category = "profile",
             points = pointsConfig.profileCompleted
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
     suspend fun onPokemonFavorited(pokemonId: Int): MissionAwardResult {
         if (pokemonId <= 0) return noAward()
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "favorite_pokemon_$pokemonId",
             category = "favorite",
             points = pointsConfig.favoriteUnique
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
     suspend fun onMarketplaceCompleted(): MissionAwardResult {
-        val awarded = awardOnce(
+        val award = awardOnce(
             eventKey = "marketplace_complete_once",
             category = "marketplace",
             points = pointsConfig.marketplaceCompleteBonus
         )
-        return finalizeAward(awarded)
+        return finalizeAward(award.first, award.second)
     }
 
-    private suspend fun awardOnce(eventKey: String, category: String, points: Int): Int {
-        if (points <= 0) return 0
-        val rowId = pointEventDao.insert(
+    private suspend fun awardOnce(eventKey: String, category: String, points: Int): Pair<Int, List<Int>> {
+        if (points <= 0) return 0 to emptyList()
+        val remote = firebaseRepository.awardMissionPoints(
+            eventKey = eventKey,
+            category = category,
+            points = points
+        )
+        userRepository.setLocalPoints(remote.totalPoints)
+        if (remote.awardedPoints <= 0) return 0 to emptyList()
+
+        pointEventDao.insert(
             PointEventEntity(
                 eventKey = eventKey,
                 category = category,
-                pointsAwarded = points
+                pointsAwarded = remote.awardedPoints
             )
         )
-        if (rowId == -1L) return 0
-        userRepository.addPoints(points)
-        return points
+        syncUnlockedPokemon(remote.unlockedPokemonIds)
+        return remote.awardedPoints to remote.unlockedPokemonIds
     }
 
-    private suspend fun finalizeAward(awardedPoints: Int): MissionAwardResult {
+    private suspend fun finalizeAward(awardedPoints: Int, unlockedIds: List<Int>): MissionAwardResult {
         if (awardedPoints <= 0) {
             val current = userRepository.getPoints()
             return MissionAwardResult(
@@ -131,34 +143,23 @@ class MissionRepository(
         }
 
         val totalPoints = userRepository.getPoints()
-        val unlockedIds = runCatching { applyUnlockThresholds() }.getOrDefault(emptyList())
         runCatching { syncTrainerStats(totalPoints) }
         return MissionAwardResult(
             awardedPoints = awardedPoints,
             totalPoints = totalPoints,
-            unlockedPokemonIds = unlockedIds
+            unlockedPokemonIds = unlockedIds.distinct()
         )
     }
 
-    private suspend fun applyUnlockThresholds(): List<Int> {
-        val points = userRepository.getPoints()
-        val unlockedCount = unlockRepository.getAll().snapshotSize()
-        val expectedUnlockCount = points / 10
-        val missingUnlocks = (expectedUnlockCount - unlockedCount).coerceAtLeast(0)
-        if (missingUnlocks == 0) return emptyList()
-
-        val granted = mutableListOf<Int>()
-        repeat(missingUnlocks) {
-            val unlockId = unlockRepository.getRandomUnlockable() ?: return@repeat
+    private suspend fun syncUnlockedPokemon(unlockedIds: List<Int>) {
+        unlockedIds.forEach { unlockId ->
             unlockRepository.unlock(unlockId)
             ownedPokemonRepository.add(
                 pokemonId = unlockId,
                 nickname = PokemonNames.getName(unlockId),
                 obtainedVia = "points_mission"
             )
-            granted += unlockId
         }
-        return granted
     }
 
     private suspend fun syncTrainerStats(points: Int) {

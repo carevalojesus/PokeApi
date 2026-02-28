@@ -32,6 +32,11 @@ class MarketplaceRepository(
 
     suspend fun buyItem(item: MarketplaceItem): MarketplacePurchaseResult {
         return runCatching {
+            val spent = userRepository.spendPoints(item.cost)
+            if (!spent) {
+                return MarketplacePurchaseResult.NotEnoughPoints
+            }
+
             val inserted = dao.insert(
                 MarketplaceItemEntity(
                     itemId = item.id,
@@ -39,12 +44,9 @@ class MarketplaceRepository(
                     equipped = false
                 )
             )
-            if (inserted == -1L) return MarketplacePurchaseResult.AlreadyOwned
-
-            val spent = userRepository.spendPoints(item.cost)
-            if (!spent) {
-                dao.deleteById(item.id)
-                return MarketplacePurchaseResult.NotEnoughPoints
+            if (inserted == -1L) {
+                userRepository.refundPoints(item.cost)
+                return MarketplacePurchaseResult.AlreadyOwned
             }
 
             var completionBonus = 0

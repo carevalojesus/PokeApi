@@ -2,6 +2,9 @@ package com.carevalojesus.pokeapi.util
 
 object PokemonNames {
 
+    const val SPRITE_BASE_URL =
+        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/"
+
     private val names = mapOf(
         1 to "Bulbasaur", 2 to "Ivysaur", 3 to "Venusaur",
         4 to "Charmander", 5 to "Charmeleon", 6 to "Charizard",
@@ -74,6 +77,5 @@ object PokemonNames {
 
     fun getName(id: Int): String = names[id] ?: "Pokemon #$id"
 
-    fun getImageUrl(id: Int): String =
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
+    fun getImageUrl(id: Int): String = "${SPRITE_BASE_URL}$id.png"
 }

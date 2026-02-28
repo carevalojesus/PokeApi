@@ -1,12 +1,8 @@
 package com.carevalojesus.pokeapi.ui.screens.admin
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,9 +10,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,17 +23,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -72,17 +74,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import com.carevalojesus.pokeapi.data.firebase.AppNotification
 import com.carevalojesus.pokeapi.data.firebase.CampaignInfo
+import com.carevalojesus.pokeapi.data.firebase.TrainerRewardClaim
 import com.carevalojesus.pokeapi.data.firebase.TrainerWithInventory
 import com.carevalojesus.pokeapi.ui.notifications.NotificationsScreen
 import com.carevalojesus.pokeapi.ui.notifications.NotificationsViewModel
+import com.carevalojesus.pokeapi.ui.screens.profile.PasswordChangeState
 import com.carevalojesus.pokeapi.util.PokemonNames
+import com.google.firebase.auth.EmailAuthProvider
+import com.google.firebase.auth.FirebaseAuth
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -100,10 +115,47 @@ fun AdminScreen(
     val notifications by notificationsViewModel.notifications.collectAsState()
     val unreadCount by notificationsViewModel.unreadCount.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showNotificationsInbox by remember { mutableStateOf(false) }
+    var selectedTrainer by remember { mutableStateOf<TrainerWithInventory?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshTrainers()
         viewModel.refreshCampaigns()
+    }
+
+    // Dialog de QR
+    if (uiState is AdminUiState.CampaignCreated) {
+        CampaignQrDialog(
+            state = uiState as AdminUiState.CampaignCreated,
+            onDismiss = { viewModel.resetUiState() }
+        )
+    }
+
+    // Dialog de bandeja de notificaciones
+    if (showNotificationsInbox) {
+        NotificationsInboxDialog(
+            notifications = notifications,
+            onMarkRead = { notificationsViewModel.markAsRead(it) },
+            onDismiss = { showNotificationsInbox = false }
+        )
+    }
+
+    // Cargar historial al seleccionar entrenador
+    LaunchedEffect(selectedTrainer) {
+        selectedTrainer?.let { viewModel.loadTrainerHistory(it.uid) }
+    }
+
+    // Vista de detalle de entrenador (pantalla completa)
+    if (selectedTrainer != null) {
+        val rewardHistory by viewModel.trainerRewards.collectAsState()
+        val historyLoading by viewModel.trainerHistoryLoading.collectAsState()
+        TrainerDetailView(
+            trainer = selectedTrainer!!,
+            rewardHistory = rewardHistory,
+            historyLoading = historyLoading,
+            onBack = { selectedTrainer = null }
+        )
+        return
     }
 
     Scaffold(
@@ -116,7 +168,7 @@ fun AdminScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = { selectedTab = 4 }) {
+                    IconButton(onClick = { showNotificationsInbox = true }) {
                         BadgedBox(
                             badge = {
                                 if (unreadCount > 0) {
@@ -183,24 +235,16 @@ fun AdminScreen(
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("Generar QR") },
-                    icon = { Icon(Icons.Default.Star, contentDescription = null) },
+                    text = { Text("Notificaciones") },
+                    icon = { Icon(Icons.Default.Send, contentDescription = null) },
                     selectedContentColor = MaterialTheme.colorScheme.onPrimary,
                     unselectedContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
                 )
                 Tab(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    text = { Text("Notificaciones") },
-                    icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
-                    selectedContentColor = MaterialTheme.colorScheme.onPrimary,
-                    unselectedContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
-                )
-                Tab(
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4 },
-                    text = { Text("Bandeja") },
-                    icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
+                    text = { Text("Perfil") },
+                    icon = { Icon(Icons.Default.Person, contentDescription = null) },
                     selectedContentColor = MaterialTheme.colorScheme.onPrimary,
                     unselectedContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
                 )
@@ -209,44 +253,946 @@ fun AdminScreen(
             when (selectedTab) {
                 0 -> TrainersTab(
                     trainers = trainers,
-                    onRefresh = { viewModel.refreshTrainers() }
+                    onRefresh = { viewModel.refreshTrainers() },
+                    onTrainerClick = { selectedTrainer = it }
                 )
                 1 -> CampaignsTab(
                     campaigns = campaigns,
+                    uiState = uiState,
                     onRefresh = { viewModel.refreshCampaigns() },
                     onToggle = { id, active -> viewModel.toggleCampaign(id, active) },
                     onDelete = { id -> viewModel.deleteCampaign(id) },
-                    onShowQr = { campaign ->
-                        viewModel.showCampaignQr(campaign)
-                        selectedTab = 2
-                    }
-                )
-                2 -> QrTab(
-                    uiState = uiState,
+                    onShowQr = { campaign -> viewModel.showCampaignQr(campaign) },
                     onCreateCampaign = { viewModel.createCampaign(it) }
                 )
-                3 -> NotificationsAdminTab(
+                2 -> NotificationsAdminTab(
                     onSendNotification = { title, message ->
                         viewModel.sendNotificationToTrainers(title, message)
                     },
                     sendStatus = broadcastStatus,
                     onDismissSendStatus = { viewModel.clearBroadcastStatus() }
                 )
-                4 -> NotificationsScreen(
+                3 -> AdminProfileTab(onLogout = onLogout)
+            }
+        }
+    }
+}
+
+// ─── Vista detalle de entrenador ────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrainerDetailView(
+    trainer: TrainerWithInventory,
+    rewardHistory: List<TrainerRewardClaim>,
+    historyLoading: Boolean,
+    onBack: () -> Unit
+) {
+    val fullName = listOf(trainer.firstName, trainer.lastName)
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+    val displayName = fullName.ifEmpty { trainer.displayName }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    var detailTab by remember { mutableIntStateOf(0) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Perfil de Entrenador") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = primaryColor,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            // Header con gradiente (siempre visible)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                primaryColor,
+                                primaryColor.copy(alpha = 0.6f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (trainer.profilePhotoUrl.isNotEmpty()) {
+                        AsyncImage(
+                            model = trainer.profilePhotoUrl,
+                            contentDescription = "Foto de $displayName",
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                                .border(3.dp, Color.White, CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.2f))
+                                .border(3.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(40.dp),
+                                tint = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = trainer.email,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = formatLastSeen(trainer.lastSeen),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isTrainerOnline(trainer.lastSeen)) Color(0xFF81C784) else Color.White.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            // Stats sobrepuestos
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-16).dp)
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TrainerStatCard("Propios", "${trainer.ownedPokemonCount}", Modifier.weight(1f))
+                TrainerStatCard("Desbloqueados", "${trainer.unlockedPokemonCount}", Modifier.weight(1f))
+                TrainerStatCard("Puntos", "${trainer.points}", Modifier.weight(1f))
+            }
+
+            // Tabs internas
+            TabRow(
+                selectedTabIndex = detailTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[detailTab]),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            ) {
+                Tab(
+                    selected = detailTab == 0,
+                    onClick = { detailTab = 0 },
+                    text = { Text("Colección") }
+                )
+                Tab(
+                    selected = detailTab == 1,
+                    onClick = { detailTab = 1 },
+                    text = { Text("Recompensas") }
+                )
+                Tab(
+                    selected = detailTab == 2,
+                    onClick = { detailTab = 2 },
+                    text = { Text("Avance") }
+                )
+            }
+
+            when (detailTab) {
+                0 -> TrainerCollectionTab(trainer)
+                1 -> TrainerRewardsTab(rewardHistory, historyLoading)
+                2 -> TrainerProgressTab(trainer, rewardHistory)
+            }
+        }
+    }
+}
+
+// ─── Tab: Colección ─────────────────────────────────────────
+
+@Composable
+private fun TrainerCollectionTab(trainer: TrainerWithInventory) {
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+    val displayName = listOf(trainer.firstName, trainer.lastName)
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+        .ifEmpty { trainer.displayName }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { Spacer(modifier = Modifier.height(4.dp)) }
+
+        // Info personal
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Información personal",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DetailRow(label = "Nombre", value = displayName)
+                    DetailRow(label = "Email", value = trainer.email)
+                    if (trainer.gender.isNotBlank()) {
+                        DetailRow(label = "Género", value = trainer.gender)
+                    }
+                    if (trainer.birthDate.isNotBlank()) {
+                        DetailRow(label = "Nacimiento", value = trainer.birthDate)
+                    }
+                    if (trainer.createdAt != null) {
+                        DetailRow(
+                            label = "Registro",
+                            value = dateFormat.format(trainer.createdAt.toDate())
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "UID: ${trainer.uid}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
+        // Pokémon header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Pokémon en inventario",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (trainer.inventory.isNotEmpty()) {
+                    val totalPokemon = trainer.inventory.sumOf { it.count }
+                    Text(
+                        text = "${trainer.inventory.size} especies, $totalPokemon total",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (trainer.inventory.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Face,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Sin Pokémon en inventario",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            items(trainer.inventory.chunked(3)) { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { item ->
+                        PokemonInventoryItem(
+                            pokemonId = item.pokemonId,
+                            count = item.count,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(3 - row.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+// ─── Tab: Recompensas ───────────────────────────────────────
+
+@Composable
+private fun TrainerRewardsTab(
+    rewardHistory: List<TrainerRewardClaim>,
+    isLoading: Boolean
+) {
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item { Spacer(modifier = Modifier.height(4.dp)) }
+
+        item {
+            Text(
+                text = "Historial de recompensas",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Campañas canjeadas por este entrenador",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (isLoading) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else if (rewardHistory.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No ha canjeado recompensas",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            items(rewardHistory, key = { it.campaignId }) { claim ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = claim.campaignName,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${claim.rewardIds.size} Pokémon",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        if (claim.claimedAt != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Canjeado: ${dateFormat.format(claim.claimedAt.toDate())}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Pokémon recibidos
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            claim.rewardIds.forEach { pokemonId ->
+                                Card(
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        AsyncImage(
+                                            model = PokemonNames.getImageUrl(pokemonId),
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                        )
+                                        Text(
+                                            text = PokemonNames.getName(pokemonId),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+// ─── Tab: Avance ────────────────────────────────────────────
+
+@Composable
+private fun TrainerProgressTab(
+    trainer: TrainerWithInventory,
+    rewardHistory: List<TrainerRewardClaim>
+) {
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+    val totalPokemon = trainer.inventory.sumOf { it.count }
+    val totalSpecies = trainer.inventory.size
+    // Progreso hacia completar el Pokédex (151 Gen 1)
+    val pokedexProgress = totalSpecies / 151f
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { Spacer(modifier = Modifier.height(4.dp)) }
+
+        item {
+            Text(
+                text = "Avance del entrenador",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // Progreso del Pokédex
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Progreso del Pokédex",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "$totalSpecies / 151 especies",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { pokedexProgress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${(pokedexProgress * 100).toInt()}% completado",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // Estadísticas generales
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Estadísticas",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ProgressStatRow(
+                        label = "Pokémon totales",
+                        value = "$totalPokemon"
+                    )
+                    ProgressStatRow(
+                        label = "Especies únicas",
+                        value = "$totalSpecies"
+                    )
+                    ProgressStatRow(
+                        label = "Pokémon desbloqueados",
+                        value = "${trainer.unlockedPokemonCount}"
+                    )
+                    ProgressStatRow(
+                        label = "Puntos acumulados",
+                        value = "${trainer.points}"
+                    )
+                    ProgressStatRow(
+                        label = "Campañas canjeadas",
+                        value = "${rewardHistory.size}"
+                    )
+                    ProgressStatRow(
+                        label = "Pokémon por recompensas",
+                        value = "${rewardHistory.sumOf { it.rewardIds.size }}"
+                    )
+                }
+            }
+        }
+
+        // Línea de tiempo
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Línea de tiempo",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (trainer.createdAt != null) {
+                        TimelineItem(
+                            label = "Fecha de registro",
+                            value = dateFormat.format(trainer.createdAt.toDate())
+                        )
+                    }
+                    if (trainer.lastClaimAt != null) {
+                        TimelineItem(
+                            label = "Última recompensa",
+                            value = dateFormat.format(trainer.lastClaimAt.toDate())
+                        )
+                    }
+                    if (trainer.updatedAt != null) {
+                        TimelineItem(
+                            label = "Última actividad",
+                            value = dateFormat.format(trainer.updatedAt.toDate())
+                        )
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+@Composable
+private fun ProgressStatRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun TimelineItem(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrainerStatCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun PokemonInventoryItem(
+    pokemonId: Int,
+    count: Int,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                AsyncImage(
+                    model = PokemonNames.getImageUrl(pokemonId),
+                    contentDescription = PokemonNames.getName(pokemonId),
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = PokemonNames.getName(pokemonId),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "#$pokemonId",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+            // Badge de cantidad
+            if (count > 1) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "x$count",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─── Dialog: QR de campaña ──────────────────────────────────
+
+@Composable
+private fun CampaignQrDialog(
+    state: AdminUiState.CampaignCreated,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .padding(vertical = 24.dp),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (state.isNewlyCreated) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Campaña creada exitosamente",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Text(
+                        text = "QR de campaña",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = state.campaignName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Image(
+                    bitmap = state.bitmap.asImageBitmap(),
+                    contentDescription = "QR de campaña",
+                    modifier = Modifier
+                        .size(260.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "ID: ${state.campaignId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Aceptar", style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
+    }
+}
+
+// ─── Dialog: Bandeja de notificaciones ──────────────────────
+
+@Composable
+private fun NotificationsInboxDialog(
+    notifications: List<AppNotification>,
+    onMarkRead: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Bandeja de entrada",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar")
+                    }
+                }
+                HorizontalDivider()
+                NotificationsScreen(
                     notifications = notifications,
-                    onMarkRead = { id -> notificationsViewModel.markAsRead(id) }
+                    onMarkRead = onMarkRead
                 )
             }
         }
     }
 }
 
-// ─── Entrenadores ────────────────────────────────────────────
+// ─── Entrenadores (listado) ─────────────────────────────────
 
 @Composable
 private fun TrainersTab(
     trainers: List<TrainerWithInventory>,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onTrainerClick: (TrainerWithInventory) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -257,7 +1203,6 @@ private fun TrainersTab(
         item { Spacer(modifier = Modifier.height(4.dp)) }
 
         item {
-            // Header con contador y botón refresh
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -313,7 +1258,10 @@ private fun TrainersTab(
         }
 
         items(trainers, key = { it.uid }) { trainer ->
-            TrainerCard(trainer)
+            TrainerCard(
+                trainer = trainer,
+                onClick = { onTrainerClick(trainer) }
+            )
         }
 
         item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -321,9 +1269,10 @@ private fun TrainersTab(
 }
 
 @Composable
-private fun TrainerCard(trainer: TrainerWithInventory) {
-    var expanded by remember { mutableStateOf(false) }
-
+private fun TrainerCard(
+    trainer: TrainerWithInventory,
+    onClick: () -> Unit
+) {
     val fullName = listOf(trainer.firstName, trainer.lastName)
         .filter { it.isNotBlank() }
         .joinToString(" ")
@@ -338,202 +1287,95 @@ private fun TrainerCard(trainer: TrainerWithInventory) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { expanded = !expanded },
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 4.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header: avatar + nombre + flecha
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Avatar con iniciales
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Avatar con indicador online
+            Box {
+                if (trainer.profilePhotoUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = trainer.profilePhotoUrl,
+                        contentDescription = "Foto de $displayName",
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = initials,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+                // Indicador online/offline
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
+                        .size(14.dp)
+                        .align(Alignment.BottomEnd)
+                        .background(
+                            color = if (isTrainerOnline(trainer.lastSeen)) Color(0xFF4CAF50) else Color.Gray,
+                            shape = CircleShape
+                        )
+                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = trainer.email,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = initials,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
+                    StatChip(
+                        label = "Propios",
+                        value = "${trainer.ownedPokemonCount}",
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = trainer.email,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Icon(
-                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp
-                    else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Contraer" else "Expandir",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Stats compactos (siempre visibles)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatChip(
-                    label = "Propios",
-                    value = "${trainer.ownedPokemonCount}",
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                StatChip(
-                    label = "Desbloqueados",
-                    value = "${trainer.unlockedPokemonCount}",
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                StatChip(
-                    label = "Puntos",
-                    value = "${trainer.points}",
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            }
-
-            // Contenido expandido
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Info personal
-                    if (trainer.gender.isNotBlank() || trainer.birthDate.isNotBlank()) {
-                        Text(
-                            text = "Información personal",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        if (trainer.gender.isNotBlank()) {
-                            DetailRow(label = "Género", value = trainer.gender)
-                        }
-                        if (trainer.birthDate.isNotBlank()) {
-                            DetailRow(label = "Nacimiento", value = trainer.birthDate)
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-
-                    // Inventario cloud
-                    Text(
-                        text = "Inventario cloud",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    if (trainer.inventory.isEmpty()) {
-                        Text(
-                            text = "Sin Pokémon en inventario cloud",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        val totalPokemon = trainer.inventory.sumOf { it.count }
-                        Text(
-                            text = "${trainer.inventory.size} especies, $totalPokemon total",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Grid de pokemon con imágenes
-                        trainer.inventory.forEach { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AsyncImage(
-                                    model = PokemonNames.getImageUrl(item.pokemonId),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                        )
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = PokemonNames.getName(item.pokemonId),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = "#${item.pokemonId}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .background(
-                                            MaterialTheme.colorScheme.primaryContainer,
-                                            RoundedCornerShape(6.dp)
-                                        )
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "x${item.count}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // UID
-                    Text(
-                        text = "UID: ${trainer.uid}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
+                    StatChip(
+                        label = "Puntos",
+                        value = "${trainer.points}",
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
             }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Ver detalle",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -542,22 +1384,22 @@ private fun TrainerCard(trainer: TrainerWithInventory) {
 private fun StatChip(
     label: String,
     value: String,
-    containerColor: androidx.compose.ui.graphics.Color,
-    contentColor: androidx.compose.ui.graphics.Color
+    containerColor: Color,
+    contentColor: Color
 ) {
     Box(
         modifier = Modifier
             .background(containerColor, RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = value,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = contentColor
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(3.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
@@ -572,34 +1414,43 @@ private fun DetailRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(vertical = 3.dp)
     ) {
         Text(
             text = "$label:",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(90.dp)
+            modifier = Modifier.width(100.dp)
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
     }
 }
 
-// ─── Campañas ────────────────────────────────────────────────
+// ─── Campañas (creación + listado) ──────────────────────────
 
 @Composable
 private fun CampaignsTab(
     campaigns: List<CampaignInfo>,
+    uiState: AdminUiState,
     onRefresh: () -> Unit,
     onToggle: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
-    onShowQr: (CampaignInfo) -> Unit
+    onShowQr: (CampaignInfo) -> Unit,
+    onCreateCampaign: (String) -> Unit
 ) {
     var deleteTarget by remember { mutableStateOf<CampaignInfo?>(null) }
+    var campaignName by remember { mutableStateOf("") }
+
+    LaunchedEffect(uiState) {
+        if (uiState is AdminUiState.CampaignCreated && uiState.isNewlyCreated) {
+            campaignName = ""
+        }
+    }
 
     if (deleteTarget != null) {
         AlertDialog(
@@ -671,6 +1522,91 @@ private fun CampaignsTab(
             }
         }
 
+        // Formulario de creación integrado
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Nueva campaña",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Cada entrenador que escanee recibirá 3 Pokémon aleatorios",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = campaignName,
+                            onValueChange = { campaignName = it },
+                            label = { Text("Nombre de campaña") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        )
+                        Button(
+                            onClick = { onCreateCampaign(campaignName) },
+                            enabled = campaignName.isNotBlank() && uiState !is AdminUiState.Loading,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            if (uiState is AdminUiState.Loading) {
+                                Text("...", style = MaterialTheme.typography.titleSmall)
+                            } else {
+                                Text("Crear", style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (uiState is AdminUiState.Error) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = (uiState as AdminUiState.Error).message,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+
         if (campaigns.isEmpty()) {
             item {
                 Card(
@@ -733,8 +1669,6 @@ private fun CampaignCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-
-                // Status badge
                 Box(
                     modifier = Modifier
                         .background(
@@ -760,7 +1694,6 @@ private fun CampaignCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Stats row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -769,7 +1702,6 @@ private fun CampaignCard(
                 CampaignStat(label = "Recompensas", value = "${campaign.rewardCount}")
             }
 
-            // Date
             if (campaign.createdAt != null) {
                 Spacer(modifier = Modifier.height(6.dp))
                 val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
@@ -782,7 +1714,6 @@ private fun CampaignCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -792,10 +1723,7 @@ private fun CampaignCard(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(
-                        "Ver QR",
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Text("Ver QR", style = MaterialTheme.typography.labelLarge)
                 }
                 OutlinedButton(
                     onClick = onToggle,
@@ -842,148 +1770,251 @@ private fun CampaignStat(label: String, value: String) {
     }
 }
 
-// ─── Generar QR ──────────────────────────────────────────────
+// ─── Perfil del admin ────────────────────────────────────────
 
 @Composable
-private fun QrTab(
-    uiState: AdminUiState,
-    onCreateCampaign: (String) -> Unit
-) {
-    var campaignName by remember { mutableStateOf("") }
+private fun AdminProfileTab(onLogout: () -> Unit) {
+    val auth = FirebaseAuth.getInstance()
+    val currentUser = auth.currentUser
+    val email = currentUser?.email ?: "Sin email"
+    val uid = currentUser?.uid ?: "Desconocido"
 
-    LazyColumn(
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var passwordChangeState by remember { mutableStateOf<PasswordChangeState>(PasswordChangeState.Idle) }
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { Spacer(modifier = Modifier.height(4.dp)) }
+        Spacer(modifier = Modifier.height(8.dp))
 
-        item {
-            Text(
-                text = "Generar QR de recompensa",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Cada entrenador que escanee el QR recibirá 3 Pokémon aleatorios",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        // Avatar
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                modifier = Modifier.size(50.dp),
+                tint = MaterialTheme.colorScheme.onPrimary
             )
         }
 
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    OutlinedTextField(
-                        value = campaignName,
-                        onValueChange = { campaignName = it },
-                        label = { Text("Nombre de campaña") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { onCreateCampaign(campaignName) },
-                        enabled = uiState !is AdminUiState.Loading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            if (uiState is AdminUiState.Loading) "Generando..." else "Crear campaña y QR",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
-                }
+        // Rol
+        Box(
+            modifier = Modifier
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = "Administrador",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+
+        // Info card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Información de cuenta",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailRow(label = "Email", value = email)
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "UID: $uid",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
 
-        when (uiState) {
-            is AdminUiState.CampaignCreated -> {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "Campaña creada",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = uiState.campaignName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Image(
-                                bitmap = uiState.bitmap.asImageBitmap(),
-                                contentDescription = "QR de campaña",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "ID: ${uiState.campaignId}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                textAlign = TextAlign.Center
+        // Cambiar contraseña
+        OutlinedButton(
+            onClick = { showChangePasswordDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Cambiar contraseña")
+        }
+
+        // Cerrar sesión
+        Button(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error
+            )
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.ExitToApp,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Cerrar sesión")
+        }
+    }
+
+    if (showChangePasswordDialog) {
+        AdminChangePasswordDialog(
+            state = passwordChangeState,
+            onChangePassword = { current, new_ ->
+                passwordChangeState = PasswordChangeState.Loading
+                val user = FirebaseAuth.getInstance().currentUser
+                if (user != null && user.email != null) {
+                    val credential = EmailAuthProvider.getCredential(user.email!!, current)
+                    user.reauthenticate(credential)
+                        .addOnSuccessListener {
+                            user.updatePassword(new_)
+                                .addOnSuccessListener {
+                                    passwordChangeState = PasswordChangeState.Success
+                                }
+                                .addOnFailureListener { e ->
+                                    passwordChangeState = PasswordChangeState.Error(
+                                        e.message ?: "Error al cambiar contraseña"
+                                    )
+                                }
+                        }
+                        .addOnFailureListener { e ->
+                            passwordChangeState = PasswordChangeState.Error(
+                                e.message ?: "Contraseña actual incorrecta"
                             )
                         }
-                    }
                 }
+            },
+            onDismiss = {
+                showChangePasswordDialog = false
+                passwordChangeState = PasswordChangeState.Idle
             }
-
-            is AdminUiState.Error -> {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Text(
-                            text = uiState.message,
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
-
-            else -> Unit
-        }
-
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+        )
     }
 }
+
+@Composable
+private fun AdminChangePasswordDialog(
+    state: PasswordChangeState,
+    onChangePassword: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    val isLoading = state is PasswordChangeState.Loading
+    val validationError = when {
+        newPassword.isNotEmpty() && newPassword.length < 6 -> "La nueva contraseña debe tener al menos 6 caracteres"
+        confirmPassword.isNotEmpty() && newPassword != confirmPassword -> "Las contraseñas no coinciden"
+        else -> null
+    }
+    val canSubmit = currentPassword.isNotBlank() && newPassword.length >= 6 &&
+            newPassword == confirmPassword && !isLoading
+
+    if (state is PasswordChangeState.Success) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Contraseña actualizada") },
+            text = { Text("Tu contraseña se ha cambiado correctamente.") },
+            confirmButton = {
+                TextButton(onClick = onDismiss) { Text("Aceptar") }
+            }
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text("Cambiar contraseña") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    label = { Text("Contraseña actual") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = { Text("Nueva contraseña") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirmar nueva contraseña") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (validationError != null) {
+                    Text(
+                        text = validationError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (state is PasswordChangeState.Error) {
+                    Text(
+                        text = state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .align(Alignment.CenterHorizontally),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onChangePassword(currentPassword, newPassword) }, enabled = canSubmit) {
+                Text("Cambiar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+// ─── Enviar notificaciones ──────────────────────────────────
 
 @Composable
 private fun NotificationsAdminTab(
@@ -1214,5 +2245,28 @@ private fun NotificationsAdminTab(
         }
 
         item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+// ─── Helpers de presencia ──────────────────────────────────
+
+private fun isTrainerOnline(lastSeen: com.google.firebase.Timestamp?): Boolean {
+    if (lastSeen == null) return false
+    val diffMs = System.currentTimeMillis() - lastSeen.toDate().time
+    return diffMs < 2 * 60 * 1000 // 2 minutos
+}
+
+private fun formatLastSeen(lastSeen: com.google.firebase.Timestamp?): String {
+    if (lastSeen == null) return "Sin conexión"
+    val diffMs = System.currentTimeMillis() - lastSeen.toDate().time
+    val diffMin = diffMs / 60_000
+    return when {
+        diffMin < 2 -> "En línea"
+        diffMin < 60 -> "Hace $diffMin min"
+        diffMin < 1440 -> "Hace ${diffMin / 60} h"
+        else -> {
+            val fmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+            "Última vez: ${fmt.format(lastSeen.toDate())}"
+        }
     }
 }

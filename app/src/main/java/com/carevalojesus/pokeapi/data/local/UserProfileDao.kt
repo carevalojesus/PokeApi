@@ -7,6 +7,8 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+// Single-row table by design: all UPDATE queries intentionally omit WHERE userId
+// because only one profile row exists at a time (the currently logged-in user).
 @Dao
 interface UserProfileDao {
 
@@ -33,6 +35,9 @@ interface UserProfileDao {
 
     @Query("SELECT points FROM user_profile LIMIT 1")
     suspend fun getPoints(): Int?
+
+    @Query("UPDATE user_profile SET points = :points")
+    suspend fun setPoints(points: Int)
 
     @Query("UPDATE user_profile SET firstName = :firstName, lastName = :lastName, birthDate = :birthDate, gender = :gender")
     suspend fun updatePersonalInfo(firstName: String, lastName: String, birthDate: String, gender: String)

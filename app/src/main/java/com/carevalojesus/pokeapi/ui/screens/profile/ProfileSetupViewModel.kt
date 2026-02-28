@@ -49,6 +49,12 @@ class ProfileSetupViewModel(application: Application) : AndroidViewModel(applica
                 app.userRepository.updatePersonalInfo(firstName, lastName, birthDate, gender)
                 if (_photoPath.value.isNotEmpty()) {
                     app.userRepository.updateProfilePhoto(_photoPath.value)
+                    // Upload to Firebase Storage
+                    val uid = app.firebaseRepository.getCurrentUserUid()
+                    if (uid != null) {
+                        val photoBytes = File(_photoPath.value).readBytes()
+                        app.firebaseRepository.uploadProfilePhoto(uid, photoBytes)
+                    }
                 }
                 app.firebaseRepository.updateTrainerPersonalInfo(firstName, lastName, birthDate, gender)
                 app.missionRepository.onProfileCompleted()

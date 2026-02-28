@@ -1,13 +1,16 @@
 package com.carevalojesus.pokeapi.ui.screens.marketplace
 
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -18,14 +21,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.carevalojesus.pokeapi.data.repository.MarketplaceCatalog
 import com.carevalojesus.pokeapi.data.repository.MarketplaceItem
 
@@ -150,6 +167,35 @@ private fun MarketplaceItemCard(
     onBuy: () -> Unit,
     onEquip: () -> Unit
 ) {
+    var showAnimated by rememberSaveable(item.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val gifImageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .components {
+                if (Build.VERSION.SDK_INT >= 28) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
+            .build()
+    }
+    LaunchedEffect(owned) {
+        if (!owned) showAnimated = false
+    }
+
+    val imageUrl = if (owned && showAnimated) item.animatedImageUrl else item.imageUrl
+    val imageModifier = Modifier
+        .size(72.dp)
+        .clip(MaterialTheme.shapes.medium)
+        .then(
+            if (owned) {
+                Modifier.clickable { showAnimated = !showAnimated }
+            } else {
+                Modifier
+            }
+        )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -159,6 +205,19 @@ private fun MarketplaceItemCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                AsyncImage(
+                    imageLoader = gifImageLoader,
+                    model = imageUrl,
+                    contentDescription = "Imagen de ${item.name}",
+                    contentScale = ContentScale.Crop,
+                    colorFilter = if (owned) null else ColorFilter.tint(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        blendMode = BlendMode.SrcIn
+                    ),
+                    alpha = if (owned) 1f else 0.35f,
+                    modifier = imageModifier
+                )
+                Spacer(modifier = Modifier.size(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.name,
@@ -181,6 +240,15 @@ private fun MarketplaceItemCard(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Categoría: ${MarketplaceCatalog.categoryLabel(item.category)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = when {
+                    !owned -> "???? - Cómpralo para revelarlo"
+                    showAnimated -> "Toca la imagen para volver a vista fija"
+                    else -> "Toca la imagen para ver su animación"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

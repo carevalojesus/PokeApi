@@ -25,8 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -179,6 +178,9 @@ fun TrainerAuthScreen(
     onLogin: (String, String) -> Unit,
     onRegister: (String, String) -> Unit,
     onBack: () -> Unit,
+    onForgotPassword: (String) -> Unit = {},
+    resetEmailSent: Boolean = false,
+    onClearResetEmailSent: () -> Unit = {},
     errorMessage: String?,
     isLoading: Boolean = false
 ) {
@@ -186,6 +188,7 @@ fun TrainerAuthScreen(
     var password by remember { mutableStateOf("") }
     var isRegister by remember(isRegisterMode) { mutableStateOf(isRegisterMode) }
     var passwordVisible by remember { mutableStateOf(false) }
+    var showForgotPasswordDialog by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
     Scaffold(
@@ -303,8 +306,8 @@ fun TrainerAuthScreen(
                         trailingIcon = {
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                 Icon(
-                                    imageVector = if (passwordVisible) Icons.Default.Close
-                                    else Icons.Default.Search,
+                                    imageVector = if (passwordVisible) Icons.Default.Lock
+                                    else Icons.Default.Lock,
                                     contentDescription = if (passwordVisible) "Ocultar" else "Mostrar",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -336,6 +339,20 @@ fun TrainerAuthScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+
+                    if (!isRegister) {
+                        TextButton(
+                            onClick = { showForgotPasswordDialog = true },
+                            enabled = !isLoading,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text(
+                                text = "¿Olvidaste tu contraseña?",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -436,6 +453,61 @@ fun TrainerAuthScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showForgotPasswordDialog) {
+        var resetEmail by remember { mutableStateOf(email) }
+        AlertDialog(
+            onDismissRequest = { showForgotPasswordDialog = false },
+            title = { Text("Restablecer contraseña") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    OutlinedTextField(
+                        value = resetEmail,
+                        onValueChange = { resetEmail = it },
+                        label = { Text("Correo electrónico") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onForgotPassword(resetEmail)
+                        showForgotPasswordDialog = false
+                    },
+                    enabled = resetEmail.isNotBlank()
+                ) {
+                    Text("Enviar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgotPasswordDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (resetEmailSent) {
+        AlertDialog(
+            onDismissRequest = onClearResetEmailSent,
+            title = { Text("Correo enviado") },
+            text = {
+                Text("Se ha enviado un enlace de restablecimiento a tu correo. Revisa tu bandeja de entrada.")
+            },
+            confirmButton = {
+                TextButton(onClick = onClearResetEmailSent) {
+                    Text("Aceptar")
+                }
+            }
+        )
     }
 }
 
@@ -575,8 +647,8 @@ fun AdminAuthScreen(
                         trailingIcon = {
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                 Icon(
-                                    imageVector = if (passwordVisible) Icons.Default.Close
-                                    else Icons.Default.Search,
+                                    imageVector = if (passwordVisible) Icons.Default.Lock
+                                    else Icons.Default.Lock,
                                     contentDescription = if (passwordVisible) "Ocultar" else "Mostrar",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

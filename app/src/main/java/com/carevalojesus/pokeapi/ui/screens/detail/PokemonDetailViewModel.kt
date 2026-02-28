@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
 import com.carevalojesus.pokeapi.data.repository.PokemonRepository
+import com.carevalojesus.pokeapi.util.PokemonNames
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -37,7 +38,7 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
         if (id > 0) favoritesRepository.isFavorite(id) else flowOf(false)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _unlockEvent = MutableSharedFlow<UnlockEvent>()
+    private val _unlockEvent = MutableSharedFlow<UnlockEvent>(replay = 1)
     val unlockEvent: SharedFlow<UnlockEvent> = _unlockEvent
 
     fun loadPokemon(id: Int) {
@@ -60,7 +61,7 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
                             pokemonId = unlockId,
                             pokemonName = unlockDetail?.name ?: "Pokémon #$unlockId",
                             imageUrl = unlockDetail?.imageUrl
-                                ?: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$unlockId.png"
+                                ?: PokemonNames.getImageUrl(unlockId)
                         )
                     )
                 }
