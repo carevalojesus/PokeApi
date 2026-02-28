@@ -91,7 +91,6 @@ fun TradeScreen(
             when (val state = uiState) {
                 is TradeUiState.QrGenerated -> {
                     // Trade summary + QR
-                    val offer = state.tradeOffer
                     Text(
                         text = "Muestra este QR al otro entrenador",
                         style = MaterialTheme.typography.titleMedium,
@@ -115,8 +114,8 @@ fun TradeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             TradePreviewCard(
-                                pokemonId = offer.offerPokemonId,
-                                pokemonName = offer.offerPokemonName,
+                                pokemonId = state.offerPokemonId,
+                                pokemonName = state.offerPokemonName,
                                 label = "Compartes"
                             )
                             Text(
@@ -126,8 +125,8 @@ fun TradeScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             TradePreviewCard(
-                                pokemonId = offer.requestPokemonId,
-                                pokemonName = offer.requestPokemonName,
+                                pokemonId = state.requestPokemonId,
+                                pokemonName = state.requestPokemonName,
                                 label = "Recibes"
                             )
                         }
@@ -153,7 +152,7 @@ fun TradeScreen(
                     }
 
                     Text(
-                        text = "Nadie pierde su Pokémon. Ambos reciben una copia del Pokémon del otro.",
+                        text = "Entregarás una copia de tu Pokémon y recibirás una del otro entrenador.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -265,7 +264,7 @@ fun TradeScreen(
                             )
                         ) {
                             Text(
-                                text = "No tienes Pokémon disponibles para intercambiar",
+                                text = "No tienes Pokémon con copias suficientes para intercambiar. Necesitas al menos 2 copias de un Pokémon.",
                                 modifier = Modifier.padding(16.dp),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -300,28 +299,45 @@ fun TradeScreen(
                                         else MaterialTheme.colorScheme.surface
                                     )
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .padding(8.dp)
-                                            .fillMaxWidth(),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        AsyncImage(
-                                            model = PokemonNames.getImageUrl(pokemon.pokemonId),
-                                            contentDescription = name,
-                                            modifier = Modifier.size(72.dp)
-                                        )
+                                    Box {
+                                        Column(
+                                            modifier = Modifier
+                                                .padding(8.dp)
+                                                .fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            AsyncImage(
+                                                model = PokemonNames.getImageUrl(pokemon.pokemonId),
+                                                contentDescription = name,
+                                                modifier = Modifier.size(72.dp)
+                                            )
+                                            Text(
+                                                text = name,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = "#${pokemon.pokemonId}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        // Quantity badge
                                         Text(
-                                            text = name,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1
-                                        )
-                                        Text(
-                                            text = "#${pokemon.pokemonId}",
+                                            text = "x${pokemon.count}",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondary,
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.secondary,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
                                         )
                                     }
                                 }
@@ -495,8 +511,8 @@ fun TradeScreen(
                         )
                     ) {
                         Text(
-                            text = "El intercambio es seguro: nadie pierde su Pokémon. " +
-                                    "Ambos entrenadores reciben una copia del Pokémon del otro.",
+                            text = "Al intercambiar, entregas una copia de tu Pokémon y recibes una del otro entrenador. " +
+                                    "Necesitas al menos 2 copias para poder intercambiar.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

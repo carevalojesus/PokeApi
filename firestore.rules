@@ -6,28 +6,225 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAdminUser(uid) {
+      return get(/databases/$(database)/documents/trainers/$(uid)).data.role == 'admin';
+    }
+
     function isAdmin() {
-      return signedIn() &&
-        get(/databases/$(database)/documents/trainers/$(request.auth.uid)).data.role == 'admin';
+      return signedIn() && isAdminUser(request.auth.uid);
+    }
+
+    function validTrainerBase(uid) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'role',
+          'displayName',
+          'firstName',
+          'lastName',
+          'birthDate',
+          'gender',
+          'ownedPokemonCount',
+          'unlockedPokemonCount',
+          'points',
+          'createdAt',
+          'updatedAt',
+          'lastClaimAt',
+          'profilePhotoUrl',
+          'lastSeen'
+        ]) &&
+        request.resource.data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
+        request.resource.data.uid == uid &&
+        request.resource.data.email is string &&
+        request.resource.data.displayName is string &&
+        request.resource.data.role == 'trainer' &&
+        (!('firstName' in request.resource.data) || request.resource.data.firstName is string) &&
+        (!('lastName' in request.resource.data) || request.resource.data.lastName is string) &&
+        (!('birthDate' in request.resource.data) || request.resource.data.birthDate is string) &&
+        (!('gender' in request.resource.data) || request.resource.data.gender is string) &&
+        (!('ownedPokemonCount' in request.resource.data) || (request.resource.data.ownedPokemonCount is int && request.resource.data.ownedPokemonCount >= 0)) &&
+        (!('unlockedPokemonCount' in request.resource.data) || (request.resource.data.unlockedPokemonCount is int && request.resource.data.unlockedPokemonCount >= 0)) &&
+        (!('points' in request.resource.data) || (request.resource.data.points is int && request.resource.data.points >= 0 && request.resource.data.points <= 1000000));
+    }
+
+    function validTrainerSelfUpdate(uid) {
+      return request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'firstName',
+          'lastName',
+          'birthDate',
+          'gender',
+          'updatedAt',
+          'lastClaimAt',
+          'ownedPokemonCount',
+          'unlockedPokemonCount',
+          'points',
+          'profilePhotoUrl',
+          'lastSeen'
+        ]) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.displayName is string &&
+        (!('firstName' in request.resource.data) || request.resource.data.firstName is string) &&
+        (!('lastName' in request.resource.data) || request.resource.data.lastName is string) &&
+        (!('birthDate' in request.resource.data) || request.resource.data.birthDate is string) &&
+        (!('gender' in request.resource.data) || request.resource.data.gender is string) &&
+        (!('ownedPokemonCount' in request.resource.data) || (request.resource.data.ownedPokemonCount is int && request.resource.data.ownedPokemonCount >= 0)) &&
+        (!('unlockedPokemonCount' in request.resource.data) || (request.resource.data.unlockedPokemonCount is int && request.resource.data.unlockedPokemonCount >= 0)) &&
+        (!('points' in request.resource.data) || (request.resource.data.points is int && request.resource.data.points >= 0 && request.resource.data.points <= 1000000));
+    }
+
+    function validInventoryPayload() {
+      return request.resource.data.keys().hasOnly(['pokemonId', 'count', 'updatedAt']) &&
+        request.resource.data.keys().hasAll(['pokemonId', 'count']) &&
+        request.resource.data.pokemonId is int &&
+        request.resource.data.count is int &&
+        request.resource.data.pokemonId >= 1 &&
+        request.resource.data.pokemonId <= 151 &&
+        request.resource.data.count >= 0 &&
+        request.resource.data.count <= 999;
+    }
+
+    function validMissionEventPayload() {
+      return request.resource.data.keys().hasOnly(['eventKey', 'category', 'pointsAwarded', 'createdAt']) &&
+        request.resource.data.keys().hasAll(['eventKey', 'category', 'pointsAwarded']) &&
+        request.resource.data.eventKey is string &&
+        request.resource.data.category is string &&
+        request.resource.data.pointsAwarded is int &&
+        request.resource.data.pointsAwarded >= 0 &&
+        request.resource.data.pointsAwarded <= 1000;
+    }
+
+    function validUnlockedPayload() {
+      return request.resource.data.keys().hasOnly(['pokemonId', 'unlockedAt']) &&
+        request.resource.data.keys().hasAll(['pokemonId']) &&
+        request.resource.data.pokemonId is int &&
+        request.resource.data.pokemonId >= 1 &&
+        request.resource.data.pokemonId <= 151;
+    }
+
+    function validNotificationCreatePayload() {
+      return request.resource.data.keys().hasOnly([
+          'title',
+          'message',
+          'type',
+          'read',
+          'createdAt',
+          'createdBy'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'title',
+          'message',
+          'type',
+          'read',
+          'createdAt',
+          'createdBy'
+        ]) &&
+        request.resource.data.title is string &&
+        request.resource.data.message is string &&
+        request.resource.data.type is string &&
+        request.resource.data.read is bool &&
+        request.resource.data.read == false &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.title.size() <= 120 &&
+        request.resource.data.message.size() <= 500;
+    }
+
+    function validNotificationSelfUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']) &&
+        request.resource.data.read is bool &&
+        request.resource.data.read == true;
     }
 
     match /trainers/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (request.auth.uid == uid && validTrainerBase(uid))
+      );
+      allow update: if signedIn() && (
+        isAdmin() ||
+        validTrainerSelfUpdate(uid)
+      );
       allow delete: if false;
 
       match /inventory/{pokemonId} {
         allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-        allow create, update: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() &&
+          request.auth.uid == uid &&
+          validInventoryPayload();
+        allow update: if signedIn() &&
+          request.auth.uid == uid &&
+          validInventoryPayload() &&
+          request.resource.data.pokemonId == resource.data.pokemonId;
         allow delete: if false;
       }
 
       match /notifications/{notificationId} {
         allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-        allow create: if signedIn() && isAdmin();
-        allow update: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() && validNotificationCreatePayload() && (
+          (isAdmin() && request.resource.data.type in ['admin_broadcast', 'new_trainer', 'general']) ||
+          (request.resource.data.type == 'new_trainer' && isAdminUser(uid))
+        );
+        allow update: if signedIn() && (
+          isAdmin() ||
+          (request.auth.uid == uid && validNotificationSelfUpdate())
+        );
         allow delete: if signedIn() && isAdmin();
       }
+
+      match /mission_events/{eventId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() &&
+          request.auth.uid == uid &&
+          validMissionEventPayload();
+        allow update, delete: if false;
+      }
+
+      match /unlocked/{pokemonId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() &&
+          request.auth.uid == uid &&
+          validUnlockedPayload();
+        allow update: if signedIn() &&
+          request.auth.uid == uid &&
+          validUnlockedPayload() &&
+          request.resource.data.pokemonId == resource.data.pokemonId;
+        allow delete: if false;
+      }
+    }
+
+    match /trades/{tradeId} {
+      allow read: if signedIn();
+      allow create: if signedIn() &&
+        request.resource.data.creatorUid == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.keys().hasAll([
+          'tradeId', 'creatorUid', 'offerPokemonId', 'requestPokemonId',
+          'offerPokemonName', 'requestPokemonName', 'status', 'createdAt'
+        ]);
+      allow update: if signedIn() && (
+        // pending → accepted: only non-creator
+        (resource.data.status == 'pending' &&
+         request.resource.data.status == 'accepted' &&
+         request.auth.uid != resource.data.creatorUid &&
+         request.resource.data.acceptorUid == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'status', 'acceptorUid', 'acceptedAt'
+         ])
+        ) ||
+        // accepted → completed: only creator
+        (resource.data.status == 'accepted' &&
+         request.resource.data.status == 'completed' &&
+         request.auth.uid == resource.data.creatorUid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'status', 'completedAt'
+         ])
+        )
+      );
+      allow delete: if false;
     }
 
     match /campaigns/{campaignId} {

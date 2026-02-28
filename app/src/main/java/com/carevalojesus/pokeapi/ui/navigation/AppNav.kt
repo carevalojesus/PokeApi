@@ -45,6 +45,7 @@ import com.carevalojesus.pokeapi.ui.screens.starter.StarterScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeConfirmScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeScanScreen
 import com.carevalojesus.pokeapi.ui.notifications.SystemNotificationsBridge
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
@@ -92,6 +93,7 @@ private fun AuthNav(
     val authNavController = rememberNavController()
     val authError by authViewModel.authError.collectAsState()
     val isAuthenticating by authViewModel.isAuthenticating.collectAsState()
+    val resetEmailSent by authViewModel.resetEmailSent.collectAsState()
 
     NavHost(navController = authNavController, startDestination = "welcome") {
         composable(route = "welcome") {
@@ -128,6 +130,11 @@ private fun AuthNav(
                     authViewModel.clearError()
                     authNavController.popBackStack()
                 },
+                onForgotPassword = { email ->
+                    authViewModel.sendPasswordReset(email)
+                },
+                resetEmailSent = resetEmailSent,
+                onClearResetEmailSent = { authViewModel.clearResetEmailSent() },
                 errorMessage = authError,
                 isLoading = isAuthenticating
             )
@@ -153,9 +160,21 @@ private fun AuthNav(
 private fun TrainerAppNav(onLogout: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as? PokeApiApplication
+    val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+
+    // Heartbeat de presencia: actualiza lastSeen cada 60 segundos
+    LaunchedEffect(app, currentUid) {
+        if (app == null || currentUid == null) return@LaunchedEffect
+        while (true) {
+            try { app.firebaseRepository.updatePresence() } catch (_: Exception) { }
+            delay(60_000L)
+        }
+    }
+
     val profileState by produceState<ProfileCheckState>(
         initialValue = ProfileCheckState.Loading,
-        key1 = app
+        key1 = app,
+        key2 = currentUid
     ) {
         if (app == null) {
             value = ProfileCheckState.Error("No se pudo inicializar la aplicación.")
@@ -281,20 +300,20 @@ private fun TrainerNavContent(startDestination: String, onLogout: () -> Unit) {
 
         composable(route = "trade/scan") {
             TradeScanScreen(
-                onTradeScanned = { tradeJson ->
-                    navController.navigate("trade/confirm/$tradeJson")
+                onTradeScanned = { tradeId ->
+                    navController.navigate("trade/confirm?tradeId=$tradeId")
                 },
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(
-            route = "trade/confirm/{tradeJson}",
-            arguments = listOf(navArgument("tradeJson") { type = NavType.StringType })
+            route = "trade/confirm?tradeId={tradeId}",
+            arguments = listOf(navArgument("tradeId") { type = NavType.StringType; defaultValue = "" })
         ) { backStackEntry ->
-            val tradeJson = backStackEntry.arguments?.getString("tradeJson") ?: ""
+            val tradeId = backStackEntry.arguments?.getString("tradeId") ?: ""
             TradeConfirmScreen(
-                tradeJson = tradeJson,
+                tradeId = tradeId,
                 onComplete = {
                     navController.popBackStack("home", inclusive = false)
                 },
@@ -305,15 +324,15 @@ private fun TrainerNavContent(startDestination: String, onLogout: () -> Unit) {
         composable(route = "reward/scan") {
             RewardScanScreen(
                 onPayloadScanned = { payload ->
-                    navController.navigate("reward/claim/$payload")
+                    navController.navigate("reward/claim?payload=$payload")
                 },
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(
-            route = "reward/claim/{payload}",
-            arguments = listOf(navArgument("payload") { type = NavType.StringType })
+            route = "reward/claim?payload={payload}",
+            arguments = listOf(navArgument("payload") { type = NavType.StringType; defaultValue = "" })
         ) { backStackEntry ->
             val payload = backStackEntry.arguments?.getString("payload") ?: ""
             RewardClaimScreen(
