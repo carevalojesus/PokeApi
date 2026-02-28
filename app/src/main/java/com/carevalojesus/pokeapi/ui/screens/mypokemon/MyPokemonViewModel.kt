@@ -60,10 +60,15 @@ class MyPokemonViewModel(application: Application) : AndroidViewModel(applicatio
                 _starterChangeResult.value = StarterChangeResult.NoChangesLeft
                 return@launch
             }
+            val profileChanged = userRepository.changeStarter(pokemonId)
+            if (!profileChanged) {
+                _starterChangeResult.value = StarterChangeResult.Error
+                return@launch
+            }
+
             val dbChanged = ownedPokemonRepository.changeStarter(entityId)
             if (dbChanged) {
-                userRepository.changeStarter(pokemonId)
-                _starterChangeResult.value = StarterChangeResult.Success(remaining - 1)
+                _starterChangeResult.value = StarterChangeResult.Success((remaining - 1).coerceAtLeast(0))
             } else {
                 _starterChangeResult.value = StarterChangeResult.Error
             }

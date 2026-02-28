@@ -51,6 +51,9 @@ interface OwnedPokemonDao {
     @Query("SELECT COUNT(*) FROM owned_pokemon WHERE pokemonId = :pokemonId")
     suspend fun countByPokemonId(pokemonId: Int): Int
 
+    @Query("SELECT EXISTS(SELECT 1 FROM owned_pokemon WHERE obtainedVia = :via)")
+    suspend fun existsByObtainedVia(via: String): Boolean
+
     @Query("DELETE FROM owned_pokemon")
     suspend fun deleteAll()
 }

@@ -51,6 +51,9 @@ interface UserProfileDao {
     @Query("SELECT starterChangesRemaining FROM user_profile LIMIT 1")
     suspend fun getStarterChangesRemaining(): Int?
 
+    @Query("UPDATE user_profile SET starterChangesRemaining = :remaining")
+    suspend fun setStarterChangesRemaining(remaining: Int)
+
     @Query("DELETE FROM user_profile")
     suspend fun deleteAll()
 }

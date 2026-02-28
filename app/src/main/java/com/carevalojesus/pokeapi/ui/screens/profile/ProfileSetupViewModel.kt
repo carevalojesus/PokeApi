@@ -21,6 +21,11 @@ class ProfileSetupViewModel(application: Application) : AndroidViewModel(applica
     private val _photoPath = MutableStateFlow("")
     val photoPath: StateFlow<String> = _photoPath
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage
+
+    fun clearError() { _errorMessage.value = null }
+
     fun pickPhoto(uri: Uri) {
         viewModelScope.launch {
             val context: Context = getApplication()
@@ -43,23 +48,25 @@ class ProfileSetupViewModel(application: Application) : AndroidViewModel(applica
     ) {
         if (_isSaving.value) return
         _isSaving.value = true
+        _errorMessage.value = null
         viewModelScope.launch {
             try {
                 app.userRepository.ensureProfileExists()
                 app.userRepository.updatePersonalInfo(firstName, lastName, birthDate, gender)
                 if (_photoPath.value.isNotEmpty()) {
                     app.userRepository.updateProfilePhoto(_photoPath.value)
-                    // Upload to Firebase Storage
                     val uid = app.firebaseRepository.getCurrentUserUid()
                     if (uid != null) {
                         val photoBytes = File(_photoPath.value).readBytes()
-                        app.firebaseRepository.uploadProfilePhoto(uid, photoBytes)
+                        val remoteUrl = app.firebaseRepository.uploadProfilePhoto(uid, photoBytes)
+                        app.userRepository.updateProfilePhoto(remoteUrl)
                     }
                 }
                 app.firebaseRepository.updateTrainerPersonalInfo(firstName, lastName, birthDate, gender)
                 app.missionRepository.onProfileCompleted()
                 onComplete()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                _errorMessage.value = e.message ?: "Error al guardar el perfil"
                 _isSaving.value = false
             }
         }

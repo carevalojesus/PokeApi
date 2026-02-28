@@ -12,6 +12,9 @@ interface FavoriteDao {
     @Query("SELECT pokemonId FROM favorites")
     fun getAllFavoriteIds(): Flow<List<Int>>
 
+    @Query("SELECT pokemonId FROM favorites")
+    suspend fun getAllFavoriteIdsOnce(): List<Int>
+
     @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE pokemonId = :pokemonId)")
     fun isFavorite(pokemonId: Int): Flow<Boolean>
 

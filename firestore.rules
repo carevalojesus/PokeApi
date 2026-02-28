@@ -31,13 +31,19 @@ service cloud.firestore {
           'updatedAt',
           'lastClaimAt',
           'profilePhotoUrl',
-          'lastSeen'
+          'lastSeen',
+          'starterChosen',
+          'starterPokemonId',
+          'starterChangesRemaining'
         ]) &&
         request.resource.data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
         request.resource.data.uid == uid &&
         request.resource.data.email is string &&
         request.resource.data.displayName is string &&
         request.resource.data.role == 'trainer' &&
+        (!('starterChosen' in request.resource.data) || request.resource.data.starterChosen is bool) &&
+        (!('starterPokemonId' in request.resource.data) || (request.resource.data.starterPokemonId is int && request.resource.data.starterPokemonId >= 0 && request.resource.data.starterPokemonId <= 151)) &&
+        (!('starterChangesRemaining' in request.resource.data) || (request.resource.data.starterChangesRemaining is int && request.resource.data.starterChangesRemaining >= 0 && request.resource.data.starterChangesRemaining <= 3)) &&
         (!('firstName' in request.resource.data) || request.resource.data.firstName is string) &&
         (!('lastName' in request.resource.data) || request.resource.data.lastName is string) &&
         (!('birthDate' in request.resource.data) || request.resource.data.birthDate is string) &&
@@ -61,12 +67,18 @@ service cloud.firestore {
           'unlockedPokemonCount',
           'points',
           'profilePhotoUrl',
-          'lastSeen'
+          'lastSeen',
+          'starterChosen',
+          'starterPokemonId',
+          'starterChangesRemaining'
         ]) &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == resource.data.email &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.displayName is string &&
+        (!('starterChosen' in request.resource.data) || request.resource.data.starterChosen is bool) &&
+        (!('starterPokemonId' in request.resource.data) || (request.resource.data.starterPokemonId is int && request.resource.data.starterPokemonId >= 0 && request.resource.data.starterPokemonId <= 151)) &&
+        (!('starterChangesRemaining' in request.resource.data) || (request.resource.data.starterChangesRemaining is int && request.resource.data.starterChangesRemaining >= 0 && request.resource.data.starterChangesRemaining <= 3)) &&
         (!('firstName' in request.resource.data) || request.resource.data.firstName is string) &&
         (!('lastName' in request.resource.data) || request.resource.data.lastName is string) &&
         (!('birthDate' in request.resource.data) || request.resource.data.birthDate is string) &&

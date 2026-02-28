@@ -33,6 +33,7 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<RewardUiState> = _uiState
 
     fun claimFromPayload(payloadEncoded: String) {
+        if (_uiState.value is RewardUiState.Loading) return
         viewModelScope.launch {
             val payload = runCatching { URLDecoder.decode(payloadEncoded, "UTF-8") }.getOrNull()
                 ?: payloadEncoded
@@ -53,10 +54,12 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
                         )
                         unlockRepository.unlock(id)
                     }
-                    val ownedCount = ownedPokemonRepository.getAll().first().size
-                    val unlockedCount = unlockRepository.getAll().first().size
-                    val points = app.userRepository.getPoints()
-                    app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                    try {
+                        val ownedCount = ownedPokemonRepository.getAll().first().size
+                        val unlockedCount = unlockRepository.getAll().first().size
+                        val points = app.userRepository.getPoints()
+                        app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                    } catch (_: Exception) { }
                     missionRepository.onRewardQrScanned(campaignId)
                     _uiState.value = RewardUiState.Success(
                         rewardIds = result.rewardIds,

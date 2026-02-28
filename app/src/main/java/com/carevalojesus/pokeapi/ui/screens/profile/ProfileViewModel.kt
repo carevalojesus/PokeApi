@@ -30,6 +30,11 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     private val _passwordChangeState = MutableStateFlow<PasswordChangeState>(PasswordChangeState.Idle)
     val passwordChangeState: StateFlow<PasswordChangeState> = _passwordChangeState
 
+    private val _photoUploadError = MutableStateFlow<String?>(null)
+    val photoUploadError: StateFlow<String?> = _photoUploadError
+
+    fun clearPhotoUploadError() { _photoUploadError.value = null }
+
     val profile: StateFlow<UserProfileEntity?> = app.userRepository.getProfile()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val ownedPokemon: StateFlow<List<OwnedPokemonEntity>> = app.ownedPokemonRepository.getAll()
@@ -64,13 +69,15 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             app.userRepository.updateProfilePhoto(destFile.absolutePath)
-            // Upload to Firebase Storage
             val uid = app.firebaseRepository.getCurrentUserUid()
             if (uid != null) {
                 try {
                     val photoBytes = destFile.readBytes()
-                    app.firebaseRepository.uploadProfilePhoto(uid, photoBytes)
-                } catch (_: Exception) { }
+                    val remoteUrl = app.firebaseRepository.uploadProfilePhoto(uid, photoBytes)
+                    app.userRepository.updateProfilePhoto(remoteUrl)
+                } catch (e: Exception) {
+                    _photoUploadError.value = e.message ?: "Error al subir la foto"
+                }
             }
         }
     }

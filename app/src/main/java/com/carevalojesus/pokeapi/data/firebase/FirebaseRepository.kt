@@ -98,8 +98,26 @@ data class TradeFirestoreData(
     val completedAt: com.google.firebase.Timestamp? = null
 )
 
+data class MarketplaceItemFirebase(
+    val itemId: String,
+    val category: String,
+    val equipped: Boolean,
+    val purchasedAt: Long
+)
+
+data class TrainerSetupState(
+    val firstName: String,
+    val lastName: String,
+    val birthDate: String,
+    val gender: String,
+    val starterChosen: Boolean,
+    val starterPokemonId: Int,
+    val starterChangesRemaining: Int,
+    val profilePhotoUrl: String
+)
+
 sealed interface TradeResult {
-    data class Success(val tradeId: String) : TradeResult
+    data class Success(val tradeId: String, val tradeData: TradeFirestoreData? = null) : TradeResult
     data class Error(val message: String) : TradeResult
 }
 
@@ -125,6 +143,8 @@ class FirebaseRepository(
         private const val TRADES = "trades"
         private const val MISSION_EVENTS = "mission_events"
         private const val UNLOCKED = "unlocked"
+        private const val FAVORITES = "favorites"
+        private const val MARKETPLACE = "marketplace"
     }
 
     suspend fun resolveCurrentUserRole(): AppUserRole? {
@@ -264,8 +284,10 @@ class FirebaseRepository(
                     trainerRef,
                     mapOf(
                         "uid" to uid,
-                        "email" to (auth.currentUser?.email ?: ""),
-                        "displayName" to (auth.currentUser?.email ?: "Entrenador"),
+                        "email" to (auth.currentUser?.email ?: "unknown"),
+                        "displayName" to (auth.currentUser?.displayName
+                            ?: auth.currentUser?.email
+                            ?: "Entrenador"),
                         "lastClaimAt" to FieldValue.serverTimestamp(),
                         "updatedAt" to FieldValue.serverTimestamp()
                     ),
@@ -456,6 +478,46 @@ class FirebaseRepository(
         }
     }
 
+    suspend fun updateStarterSelection(
+        starterPokemonId: Int,
+        starterChangesRemaining: Int? = null
+    ): Result<Unit> {
+        return runCatching {
+            val uid = auth.currentUser?.uid ?: error("No hay sesion activa")
+            val updates = mutableMapOf<String, Any>(
+                "starterChosen" to true,
+                "starterPokemonId" to starterPokemonId,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (starterChangesRemaining != null) {
+                updates["starterChangesRemaining"] = starterChangesRemaining.coerceAtLeast(0)
+            }
+            firestore.collection(TRAINERS).document(uid)
+                .set(updates, SetOptions.merge())
+                .await()
+        }
+    }
+
+    suspend fun getCurrentTrainerSetupState(): TrainerSetupState? {
+        val uid = auth.currentUser?.uid ?: return null
+        val doc = firestore.collection(TRAINERS).document(uid).get().await()
+        if (!doc.exists()) return null
+
+        val starterPokemonId = (doc.getLong("starterPokemonId") ?: 0L).toInt()
+        val starterChosen = doc.getBoolean("starterChosen") ?: (starterPokemonId > 0)
+
+        return TrainerSetupState(
+            firstName = doc.getString("firstName") ?: "",
+            lastName = doc.getString("lastName") ?: "",
+            birthDate = doc.getString("birthDate") ?: "",
+            gender = doc.getString("gender") ?: "",
+            starterChosen = starterChosen,
+            starterPokemonId = starterPokemonId,
+            starterChangesRemaining = (doc.getLong("starterChangesRemaining") ?: 3L).toInt(),
+            profilePhotoUrl = doc.getString("profilePhotoUrl") ?: ""
+        )
+    }
+
     suspend fun getAllCampaigns(): Result<List<CampaignInfo>> {
         return runCatching {
             val campaignDocs = firestore.collection(CAMPAIGNS)
@@ -634,6 +696,43 @@ class FirebaseRepository(
             .await()
             .documents
         return docs.mapNotNull { it.getLong("pokemonId")?.toInt() }.distinct()
+    }
+
+    suspend fun getCurrentUserInventory(): List<InventoryCount> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        val docs = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection("inventory")
+            .get()
+            .await()
+            .documents
+        return docs.mapNotNull { inv ->
+            val pokemonId = (inv.getLong("pokemonId") ?: return@mapNotNull null).toInt()
+            val count = (inv.getLong("count") ?: 0L).toInt()
+            InventoryCount(pokemonId = pokemonId, count = count)
+        }
+    }
+
+    suspend fun ensureInventoryHasAtLeast(pokemonId: Int, minCount: Int = 1) {
+        val uid = auth.currentUser?.uid ?: return
+        if (pokemonId <= 0 || minCount <= 0) return
+        val trainerRef = firestore.collection(TRAINERS).document(uid)
+        val invRef = trainerRef.collection("inventory").document(pokemonId.toString())
+
+        firestore.runTransaction { tx ->
+            val snap = tx.get(invRef)
+            val current = (snap.getLong("count") ?: 0L).toInt()
+            if (current >= minCount) return@runTransaction
+            tx.set(
+                invRef,
+                mapOf(
+                    "pokemonId" to pokemonId,
+                    "count" to minCount,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+        }.await()
     }
 
     suspend fun addTrainerPoints(amount: Int): Int {
@@ -893,7 +992,7 @@ class FirebaseRepository(
         val uid = auth.currentUser?.uid ?: return TradeResult.Error("Debes iniciar sesión")
 
         return try {
-            firestore.runTransaction { tx ->
+            val tradeData = firestore.runTransaction { tx ->
                 val tradeRef = firestore.collection(TRADES).document(tradeId)
                 val tradeSnap = tx.get(tradeRef)
 
@@ -907,6 +1006,7 @@ class FirebaseRepository(
                 val requestPokemonId = (tradeSnap.getLong("requestPokemonId") ?: 0L).toInt()
                 val offerPokemonId = (tradeSnap.getLong("offerPokemonId") ?: 0L).toInt()
                 val offerPokemonName = tradeSnap.getString("offerPokemonName") ?: ""
+                val requestPokemonName = tradeSnap.getString("requestPokemonName") ?: ""
 
                 // Read B's inventory for the requested pokemon
                 val trainerBRef = firestore.collection(TRAINERS).document(uid)
@@ -940,9 +1040,20 @@ class FirebaseRepository(
                     "count" to (bOfferCount + 1),
                     "updatedAt" to FieldValue.serverTimestamp()
                 ))
+
+                TradeFirestoreData(
+                    tradeId = tradeId,
+                    creatorUid = creatorUid,
+                    acceptorUid = uid,
+                    offerPokemonId = offerPokemonId,
+                    requestPokemonId = requestPokemonId,
+                    offerPokemonName = offerPokemonName,
+                    requestPokemonName = requestPokemonName,
+                    status = "accepted"
+                )
             }.await()
 
-            TradeResult.Success(tradeId)
+            TradeResult.Success(tradeId, tradeData)
         } catch (e: Exception) {
             TradeResult.Error(e.cause?.message ?: e.message ?: "Error al aceptar intercambio")
         }
@@ -952,7 +1063,7 @@ class FirebaseRepository(
         val uid = auth.currentUser?.uid ?: return TradeResult.Error("Debes iniciar sesión")
 
         return try {
-            firestore.runTransaction { tx ->
+            val tradeData = firestore.runTransaction { tx ->
                 val tradeRef = firestore.collection(TRADES).document(tradeId)
                 val tradeSnap = tx.get(tradeRef)
 
@@ -965,7 +1076,9 @@ class FirebaseRepository(
 
                 val offerPokemonId = (tradeSnap.getLong("offerPokemonId") ?: 0L).toInt()
                 val requestPokemonId = (tradeSnap.getLong("requestPokemonId") ?: 0L).toInt()
+                val offerPokemonName = tradeSnap.getString("offerPokemonName") ?: ""
                 val requestPokemonName = tradeSnap.getString("requestPokemonName") ?: ""
+                val acceptorUid = tradeSnap.getString("acceptorUid") ?: ""
 
                 // Read A's inventory for the offered pokemon
                 val trainerARef = firestore.collection(TRAINERS).document(uid)
@@ -998,9 +1111,20 @@ class FirebaseRepository(
                     "count" to (aReqCount + 1),
                     "updatedAt" to FieldValue.serverTimestamp()
                 ))
+
+                TradeFirestoreData(
+                    tradeId = tradeId,
+                    creatorUid = creatorUid,
+                    acceptorUid = acceptorUid,
+                    offerPokemonId = offerPokemonId,
+                    requestPokemonId = requestPokemonId,
+                    offerPokemonName = offerPokemonName,
+                    requestPokemonName = requestPokemonName,
+                    status = "completed"
+                )
             }.await()
 
-            TradeResult.Success(tradeId)
+            TradeResult.Success(tradeId, tradeData)
         } catch (e: Exception) {
             TradeResult.Error(e.cause?.message ?: e.message ?: "Error al completar intercambio")
         }
@@ -1033,6 +1157,9 @@ class FirebaseRepository(
         )
         if (!doc.exists()) {
             data["createdAt"] = FieldValue.serverTimestamp()
+            data["starterChosen"] = false
+            data["starterPokemonId"] = 0
+            data["starterChangesRemaining"] = 3
         }
         docRef.set(data, SetOptions.merge()).await()
     }
@@ -1076,6 +1203,93 @@ class FirebaseRepository(
             }.sortedByDescending { it.claimedAt }
         }
     }
+
+    // ── Favorites ──────────────────────────────────────────────
+
+    suspend fun addFavorite(pokemonId: Int) {
+        val uid = auth.currentUser?.uid ?: return
+        firestore.collection(TRAINERS).document(uid)
+            .collection(FAVORITES).document(pokemonId.toString())
+            .set(
+                mapOf(
+                    "pokemonId" to pokemonId,
+                    "addedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun removeFavorite(pokemonId: Int) {
+        val uid = auth.currentUser?.uid ?: return
+        firestore.collection(TRAINERS).document(uid)
+            .collection(FAVORITES).document(pokemonId.toString())
+            .delete().await()
+    }
+
+    suspend fun getFavorites(): List<Int> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        val docs = firestore.collection(TRAINERS).document(uid)
+            .collection(FAVORITES).get().await().documents
+        return docs.mapNotNull { it.getLong("pokemonId")?.toInt() }
+    }
+
+    // ── Marketplace ─────────────────────────────────────────────
+
+    suspend fun addMarketplaceItem(itemId: String, category: String) {
+        val uid = auth.currentUser?.uid ?: return
+        firestore.collection(TRAINERS).document(uid)
+            .collection(MARKETPLACE).document(itemId)
+            .set(
+                mapOf(
+                    "itemId" to itemId,
+                    "category" to category,
+                    "equipped" to false,
+                    "purchasedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun updateMarketplaceItemEquipped(itemId: String, category: String, equipped: Boolean) {
+        val uid = auth.currentUser?.uid ?: return
+        if (equipped) {
+            // Unequip all items in same category first
+            val docs = firestore.collection(TRAINERS).document(uid)
+                .collection(MARKETPLACE)
+                .whereEqualTo("category", category)
+                .whereEqualTo("equipped", true)
+                .get().await().documents
+            val batch = firestore.batch()
+            docs.forEach { doc ->
+                batch.update(doc.reference, "equipped", false)
+            }
+            batch.update(
+                firestore.collection(TRAINERS).document(uid)
+                    .collection(MARKETPLACE).document(itemId),
+                "equipped", true
+            )
+            batch.commit().await()
+        } else {
+            firestore.collection(TRAINERS).document(uid)
+                .collection(MARKETPLACE).document(itemId)
+                .update("equipped", false).await()
+        }
+    }
+
+    suspend fun getMarketplaceItems(): List<MarketplaceItemFirebase> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        val docs = firestore.collection(TRAINERS).document(uid)
+            .collection(MARKETPLACE).get().await().documents
+        return docs.mapNotNull { doc ->
+            val itemId = doc.getString("itemId") ?: return@mapNotNull null
+            MarketplaceItemFirebase(
+                itemId = itemId,
+                category = doc.getString("category") ?: "",
+                equipped = doc.getBoolean("equipped") ?: false,
+                purchasedAt = doc.getTimestamp("purchasedAt")?.seconds ?: 0L
+            )
+        }
+    }
+
+    // ── Notifications ───────────────────────────────────────────
 
     private suspend fun notifyAdminsNewTrainer(trainerEmail: String) {
         runCatching {

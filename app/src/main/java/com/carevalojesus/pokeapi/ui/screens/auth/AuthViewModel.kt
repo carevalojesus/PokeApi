@@ -10,9 +10,11 @@ import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import android.util.Patterns
+import com.carevalojesus.pokeapi.ui.notifications.SystemNotificationsBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface AuthUiState {
     data object Loading : AuthUiState
@@ -48,7 +50,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
             try {
-                val role = firebaseRepository.resolveCurrentUserRole()
+                val role = withTimeoutOrNull(15_000L) {
+                    firebaseRepository.resolveCurrentUserRole()
+                }
+                if (role == null && firebaseRepository.getCurrentUserUid() != null) {
+                    _uiState.value = AuthUiState.LoggedOut
+                    _authError.value = "Tiempo de espera agotado. Verifica tu conexión"
+                    return@launch
+                }
                 _uiState.value = when (role) {
                     AppUserRole.ADMIN -> AuthUiState.Admin
                     AppUserRole.TRAINER -> {
@@ -84,7 +93,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 _isAuthenticating.value = false
                 return@launch
             }
-            val result = firebaseRepository.registerTrainer(normalized, password)
+            val result = withTimeoutOrNull(30_000L) {
+                firebaseRepository.registerTrainer(normalized, password)
+            }
+            if (result == null) {
+                _authError.value = "Tiempo de espera agotado. Verifica tu conexión"
+                _isAuthenticating.value = false
+                return@launch
+            }
             if (result.isFailure) {
                 _authError.value = mapAuthError(result.exceptionOrNull())
                 _isAuthenticating.value = false
@@ -113,7 +129,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 _isAuthenticating.value = false
                 return@launch
             }
-            val result = firebaseRepository.signInTrainer(normalized, password)
+            val result = withTimeoutOrNull(30_000L) {
+                firebaseRepository.signInTrainer(normalized, password)
+            }
+            if (result == null) {
+                _authError.value = "Tiempo de espera agotado. Verifica tu conexión"
+                _isAuthenticating.value = false
+                return@launch
+            }
             if (result.isFailure) {
                 _authError.value = mapAuthError(result.exceptionOrNull())
                 _isAuthenticating.value = false
@@ -142,7 +165,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 _isAuthenticating.value = false
                 return@launch
             }
-            val result = firebaseRepository.signInAdmin(normalized, password)
+            val result = withTimeoutOrNull(30_000L) {
+                firebaseRepository.signInAdmin(normalized, password)
+            }
+            if (result == null) {
+                _authError.value = "Tiempo de espera agotado. Verifica tu conexión"
+                _isAuthenticating.value = false
+                return@launch
+            }
             if (result.isFailure) {
                 _authError.value = mapAuthError(result.exceptionOrNull())
                 _isAuthenticating.value = false
@@ -155,14 +185,21 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun signOut() {
         viewModelScope.launch {
-            app.clearAllLocalData()
-            firebaseRepository.signOut()
-            _authError.value = null
-            _uiState.value = AuthUiState.LoggedOut
+            _uiState.value = AuthUiState.Loading
+            try {
+                SystemNotificationsBridge.stop()
+                SystemNotificationsBridge.clearShownIds(app)
+                app.clearAllLocalData()
+            } finally {
+                firebaseRepository.signOut()
+                _authError.value = null
+                _uiState.value = AuthUiState.LoggedOut
+            }
         }
     }
 
     fun sendPasswordReset(email: String) {
+        if (_isAuthenticating.value) return
         viewModelScope.launch {
             _isAuthenticating.value = true
             _authError.value = null
@@ -172,7 +209,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 _isAuthenticating.value = false
                 return@launch
             }
-            val result = firebaseRepository.sendPasswordResetEmail(normalized)
+            val result = withTimeoutOrNull(30_000L) {
+                firebaseRepository.sendPasswordResetEmail(normalized)
+            }
+            if (result == null) {
+                _authError.value = "Tiempo de espera agotado. Verifica tu conexión"
+                _isAuthenticating.value = false
+                return@launch
+            }
             if (result.isFailure) {
                 _authError.value = result.exceptionOrNull()?.message ?: "Error al enviar correo"
             } else {

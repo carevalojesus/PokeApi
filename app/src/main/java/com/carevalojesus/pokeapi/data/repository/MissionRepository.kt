@@ -1,5 +1,6 @@
 package com.carevalojesus.pokeapi.data.repository
 
+import android.util.Log
 import com.carevalojesus.pokeapi.data.firebase.FirebaseRepository
 import com.carevalojesus.pokeapi.data.local.PointEventDao
 import com.carevalojesus.pokeapi.data.local.PointEventEntity
@@ -143,7 +144,11 @@ class MissionRepository(
         }
 
         val totalPoints = userRepository.getPoints()
-        runCatching { syncTrainerStats(totalPoints) }
+        try {
+            syncTrainerStats(totalPoints)
+        } catch (e: Exception) {
+            Log.e("MissionRepository", "Error syncing trainer stats", e)
+        }
         return MissionAwardResult(
             awardedPoints = awardedPoints,
             totalPoints = totalPoints,

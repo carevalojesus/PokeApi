@@ -69,6 +69,11 @@ object SystemNotificationsBridge {
         listenJob = null
     }
 
+    fun clearShownIds(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(PREF_KEY_SHOWN).apply()
+    }
+
     private fun showSystemNotification(
         context: Context,
         notificationId: String,

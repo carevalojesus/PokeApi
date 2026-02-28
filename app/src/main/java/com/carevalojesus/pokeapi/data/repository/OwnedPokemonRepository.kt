@@ -49,6 +49,20 @@ class OwnedPokemonRepository(private val dao: OwnedPokemonDao) {
     }
 
     suspend fun countByPokemonId(pokemonId: Int): Int = dao.countByPokemonId(pokemonId)
+
+    suspend fun addFromTrade(pokemonId: Int, nickname: String, tradeId: String): Boolean {
+        val via = "trade:$tradeId"
+        if (dao.existsByObtainedVia(via)) return false
+        dao.insert(
+            OwnedPokemonEntity(
+                pokemonId = pokemonId,
+                nickname = nickname,
+                obtainedVia = via,
+                isNewFromTrade = true
+            )
+        )
+        return true
+    }
 }
 
 data class AggregatedPokemon(

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class StarterOption(
     val pokemonId: Int,
@@ -39,13 +40,20 @@ class StarterViewModel(application: Application) : AndroidViewModel(application)
     private val _isConfirming = MutableStateFlow(false)
     val isConfirming: StateFlow<Boolean> = _isConfirming
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage
+
+    fun clearError() { _errorMessage.value = null }
+
     fun selectStarter(starter: StarterOption) {
         _selectedStarter.value = starter
         _nickname.value = ""
+        _errorMessage.value = null
     }
 
     fun onNicknameChange(value: String) {
         _nickname.value = value
+        _errorMessage.value = null
     }
 
     fun confirmStarter(onComplete: () -> Unit) {
@@ -55,19 +63,36 @@ class StarterViewModel(application: Application) : AndroidViewModel(application)
         val finalNickname = _nickname.value.ifBlank { starter.name }
         viewModelScope.launch {
             try {
-                userRepository.ensureProfileExists()
-                userRepository.setStarter(starter.pokemonId)
+                val starterSaved = withTimeoutOrNull(20_000L) {
+                    userRepository.ensureProfileExists()
+                    userRepository.setStarter(starter.pokemonId)
+                }
+                if (starterSaved == null) {
+                    _errorMessage.value = "No se pudo confirmar tu starter. Verifica tu conexión."
+                    _isConfirming.value = false
+                    return@launch
+                }
+
                 ownedPokemonRepository.add(
                     pokemonId = starter.pokemonId,
                     nickname = finalNickname,
                     isStarter = true
                 )
-                val ownedCount = ownedPokemonRepository.getAll().first().size
-                val unlockedCount = unlockRepository.getAll().first().size
-                val points = userRepository.getPoints()
-                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
                 onComplete()
-            } catch (_: Exception) {
+
+                // Sincronización secundaria en background: no debe bloquear la navegación.
+                runCatching {
+                    app.firebaseRepository.ensureInventoryHasAtLeast(
+                        pokemonId = starter.pokemonId,
+                        minCount = 1
+                    )
+                    val ownedCount = ownedPokemonRepository.getAll().first().size
+                    val unlockedCount = unlockRepository.getAll().first().size
+                    val points = withTimeoutOrNull(10_000L) { userRepository.getPoints() } ?: 0
+                    app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = e.message ?: "Error al elegir tu starter"
                 _isConfirming.value = false
             }
         }

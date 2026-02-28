@@ -38,6 +38,7 @@ fun StarterScreen(
     val selectedStarter by viewModel.selectedStarter.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
     val isConfirming by viewModel.isConfirming.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     Column(
         modifier = Modifier
@@ -135,6 +136,17 @@ fun StarterScreen(
             Text(
                 text = if (isConfirming) "Confirmando..." else "Confirmar",
                 style = MaterialTheme.typography.titleMedium
+            )
+        }
+
+        if (!errorMessage.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
 

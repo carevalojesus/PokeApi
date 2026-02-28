@@ -46,8 +46,6 @@ import com.carevalojesus.pokeapi.ui.screens.trade.TradeConfirmScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeScanScreen
 import com.carevalojesus.pokeapi.ui.notifications.SystemNotificationsBridge
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
 
 @Composable
 fun AppNav(
@@ -163,9 +161,11 @@ private fun TrainerAppNav(onLogout: () -> Unit) {
     val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
 
     // Heartbeat de presencia: actualiza lastSeen cada 60 segundos
-    LaunchedEffect(app, currentUid) {
-        if (app == null || currentUid == null) return@LaunchedEffect
+    LaunchedEffect(app) {
+        if (app == null) return@LaunchedEffect
         while (true) {
+            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (uid == null) break
             try { app.firebaseRepository.updatePresence() } catch (_: Exception) { }
             delay(60_000L)
         }
@@ -180,23 +180,19 @@ private fun TrainerAppNav(onLogout: () -> Unit) {
             value = ProfileCheckState.Error("No se pudo inicializar la aplicación.")
             return@produceState
         }
-        app.userRepository.getProfile()
-            .map { profile ->
-                when {
-                    profile == null -> ProfileCheckState.NeedsProfileSetup
-                    profile.firstName.isBlank() -> ProfileCheckState.NeedsProfileSetup
-                    !profile.starterChosen -> ProfileCheckState.NeedsStarter
-                    else -> ProfileCheckState.Ready
-                }
+        try {
+            val remote = app.firebaseRepository.getCurrentTrainerSetupState()
+            value = when {
+                remote == null -> ProfileCheckState.NeedsProfileSetup
+                remote.firstName.isBlank() -> ProfileCheckState.NeedsProfileSetup
+                !remote.starterChosen -> ProfileCheckState.NeedsStarter
+                else -> ProfileCheckState.Ready
             }
-            .catch { error ->
-                value = ProfileCheckState.Error(
-                    error.message ?: "Error cargando perfil inicial."
-                )
-            }
-            .collect { state ->
-                value = state
-            }
+        } catch (error: Exception) {
+            value = ProfileCheckState.Error(
+                error.message ?: "Error cargando perfil inicial."
+            )
+        }
     }
 
     when (profileState) {

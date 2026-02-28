@@ -23,6 +23,11 @@ class UserRepository(
 
     suspend fun setStarter(pokemonId: Int) {
         ensureProfileExists()
+        val remaining = dao.getStarterChangesRemaining() ?: 3
+        firebaseRepository.updateStarterSelection(
+            starterPokemonId = pokemonId,
+            starterChangesRemaining = remaining
+        ).getOrThrow()
         dao.setStarter(pokemonId)
     }
 
@@ -67,6 +72,24 @@ class UserRepository(
         return total
     }
 
+    suspend fun syncProfileFromRemote() {
+        ensureProfileExists()
+        val remote = firebaseRepository.getCurrentTrainerSetupState() ?: return
+        dao.updatePersonalInfo(
+            firstName = remote.firstName,
+            lastName = remote.lastName,
+            birthDate = remote.birthDate,
+            gender = remote.gender
+        )
+        dao.setStarterChangesRemaining(remote.starterChangesRemaining.coerceAtLeast(0))
+        if (remote.starterChosen && remote.starterPokemonId > 0) {
+            dao.setStarter(remote.starterPokemonId)
+        }
+        if (remote.profilePhotoUrl.isNotBlank()) {
+            dao.updateProfilePhoto(remote.profilePhotoUrl)
+        }
+    }
+
     suspend fun setLocalPoints(points: Int) {
         ensureProfileExists()
         dao.setPoints(points)
@@ -84,12 +107,25 @@ class UserRepository(
 
     suspend fun getStarterChangesRemaining(): Int {
         ensureProfileExists()
+        val remote = firebaseRepository.getCurrentTrainerSetupState()
+        if (remote != null) {
+            val remaining = remote.starterChangesRemaining.coerceAtLeast(0)
+            dao.setStarterChangesRemaining(remaining)
+            return remaining
+        }
         return dao.getStarterChangesRemaining() ?: 3
     }
 
     suspend fun changeStarter(pokemonId: Int): Boolean {
-        val remaining = dao.getStarterChangesRemaining() ?: 3
+        ensureProfileExists()
+        val remaining = getStarterChangesRemaining()
         if (remaining <= 0) return false
+        val updatedRemaining = (remaining - 1).coerceAtLeast(0)
+        val remoteResult = firebaseRepository.updateStarterSelection(
+            starterPokemonId = pokemonId,
+            starterChangesRemaining = updatedRemaining
+        )
+        if (remoteResult.isFailure) return false
         dao.changeStarter(pokemonId)
         return true
     }

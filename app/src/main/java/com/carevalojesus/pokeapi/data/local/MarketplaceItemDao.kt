@@ -12,6 +12,9 @@ interface MarketplaceItemDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: MarketplaceItemEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: MarketplaceItemEntity)
+
     @Query("SELECT itemId FROM marketplace_items")
     fun getOwnedItemIdsFlow(): Flow<List<String>>
 

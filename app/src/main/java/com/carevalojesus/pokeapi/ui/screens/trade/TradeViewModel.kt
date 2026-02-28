@@ -158,22 +158,21 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun acceptTrade(tradeId: String) {
+        if (_uiState.value is TradeUiState.Creating) return
         viewModelScope.launch {
             _uiState.value = TradeUiState.Creating
             try {
                 val result = firebaseRepository.acceptTrade(tradeId)
                 when (result) {
                     is TradeResult.Success -> {
-                        // Fetch the trade to get pokemon details
-                        val trade = firebaseRepository.fetchTrade(tradeId)
+                        val trade = result.tradeData
                         if (trade != null) {
-                            // Update Room local: B loses requested, gains offered
+                            // Update Room local: B loses requested, gains offered (idempotent)
                             ownedPokemonRepository.removeOneByPokemonId(trade.requestPokemonId)
-                            ownedPokemonRepository.add(
+                            ownedPokemonRepository.addFromTrade(
                                 pokemonId = trade.offerPokemonId,
                                 nickname = trade.offerPokemonName,
-                                obtainedVia = "trade",
-                                isNewFromTrade = true
+                                tradeId = "${tradeId}_accept"
                             )
                             unlockRepository.unlock(trade.offerPokemonId)
 
@@ -183,7 +182,6 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
                             firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
                             missionRepository.onTradeCompleted(tradeId, "acceptor")
 
-                            // Save trade record on B's side
                             tradeRepository.insert(
                                 TradeEntity(
                                     tradeId = tradeId,
@@ -194,7 +192,6 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
 
-                            // Generate QR with same tradeId for A to scan
                             val qrContent = "pokeapi://trade/$tradeId"
                             val barcodeEncoder = BarcodeEncoder()
                             val bitmap = barcodeEncoder.encodeBitmap(qrContent, BarcodeFormat.QR_CODE, 512, 512)
@@ -215,54 +212,47 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun completeTrade(tradeId: String) {
+        if (_uiState.value is TradeUiState.Creating) return
         viewModelScope.launch {
             _uiState.value = TradeUiState.Creating
             try {
-                // Fetch trade to get pokemon details before completing
-                val trade = firebaseRepository.fetchTrade(tradeId)
-                if (trade == null) {
-                    _uiState.value = TradeUiState.Error("Intercambio no encontrado")
-                    return@launch
-                }
-                if (trade.status != "accepted") {
-                    _uiState.value = TradeUiState.Error("Intercambio no está listo para completar")
-                    return@launch
-                }
-
                 val result = firebaseRepository.completeTrade(tradeId)
                 when (result) {
                     is TradeResult.Success -> {
-                        // Update Room local: A loses offered, gains requested
-                        ownedPokemonRepository.removeOneByPokemonId(trade.offerPokemonId)
-                        ownedPokemonRepository.add(
-                            pokemonId = trade.requestPokemonId,
-                            nickname = trade.requestPokemonName,
-                            obtainedVia = "trade",
-                            isNewFromTrade = true
-                        )
-                        unlockRepository.unlock(trade.requestPokemonId)
-
-                        val ownedCount = ownedPokemonRepository.getAll().first().size
-                        val unlockedCount = unlockRepository.getAll().first().size
-                        val points = app.userRepository.getPoints()
-                        firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
-                        missionRepository.onTradeCompleted(tradeId, "creator")
-
-                        // Update trade status in Room
-                        val existingTrade = tradeRepository.getById(tradeId)
-                        if (existingTrade != null) {
-                            tradeRepository.update(
-                                existingTrade.copy(
-                                    status = "completed",
-                                    peerUserId = trade.acceptorUid
-                                )
+                        val trade = result.tradeData
+                        if (trade != null) {
+                            // Update Room local: A loses offered, gains requested (idempotent)
+                            ownedPokemonRepository.removeOneByPokemonId(trade.offerPokemonId)
+                            ownedPokemonRepository.addFromTrade(
+                                pokemonId = trade.requestPokemonId,
+                                nickname = trade.requestPokemonName,
+                                tradeId = "${tradeId}_complete"
                             )
-                        }
+                            unlockRepository.unlock(trade.requestPokemonId)
 
-                        _uiState.value = TradeUiState.TradeSuccess(
-                            receivedPokemonId = trade.requestPokemonId,
-                            receivedPokemonName = trade.requestPokemonName
-                        )
+                            val ownedCount = ownedPokemonRepository.getAll().first().size
+                            val unlockedCount = unlockRepository.getAll().first().size
+                            val points = app.userRepository.getPoints()
+                            firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                            missionRepository.onTradeCompleted(tradeId, "creator")
+
+                            val existingTrade = tradeRepository.getById(tradeId)
+                            if (existingTrade != null) {
+                                tradeRepository.update(
+                                    existingTrade.copy(
+                                        status = "completed",
+                                        peerUserId = trade.acceptorUid
+                                    )
+                                )
+                            }
+
+                            _uiState.value = TradeUiState.TradeSuccess(
+                                receivedPokemonId = trade.requestPokemonId,
+                                receivedPokemonName = trade.requestPokemonName
+                            )
+                        } else {
+                            _uiState.value = TradeUiState.Error("No se pudo obtener datos del intercambio")
+                        }
                     }
                     is TradeResult.Error -> {
                         _uiState.value = TradeUiState.Error(result.message)
