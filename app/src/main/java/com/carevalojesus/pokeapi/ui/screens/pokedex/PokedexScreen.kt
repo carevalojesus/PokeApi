@@ -41,7 +41,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -66,7 +65,7 @@ fun PokedexScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Pokedex") },
+                title = { Text("Pokédex") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -84,7 +83,7 @@ fun PokedexScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                placeholder = { Text("Buscar por nombre o numero...") },
+                placeholder = { Text("Buscar por nombre o número...") },
                 leadingIcon = {
                     Icon(Icons.Default.Search, contentDescription = "Buscar")
                 },
@@ -199,35 +198,43 @@ fun PokemonCard(
     isFavorite: Boolean = false,
     onFavoriteToggle: () -> Unit = {}
 ) {
+    val cardHeight = 190.dp
+
     if (isDiscovered) {
-        // Card neutral sin color de tipo
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(cardHeight)
                 .clickable(onClick = onClick),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
         ) {
-            Box {
+            Box(modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier
                         .padding(8.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     AsyncImage(
                         model = pokemon.imageUrl,
                         contentDescription = pokemon.name,
-                        modifier = Modifier.size(120.dp)
+                        modifier = Modifier.size(110.dp)
                     )
                     Text(
                         text = "#${pokemon.id}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
                         text = pokemon.name,
                         style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1
                     )
                 }
                 IconButton(
@@ -238,48 +245,49 @@ fun PokemonCard(
                         imageVector = if (isFavorite) Icons.Filled.Favorite
                         else Icons.Outlined.FavoriteBorder,
                         contentDescription = if (isFavorite) "Quitar favorito" else "Agregar favorito",
-                        tint = if (isFavorite) Color.Red
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isFavorite) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
                     )
                 }
             }
         }
     } else {
-        // Card sombreada / silueta
+        // Card sombra / silueta
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .alpha(0.6f),
+                .height(cardHeight),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF2A2A2A)
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
             )
         ) {
             Column(
                 modifier = Modifier
                     .padding(8.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
                 AsyncImage(
                     model = pokemon.imageUrl,
-                    contentDescription = "Pokemon no descubierto",
-                    modifier = Modifier.size(120.dp),
+                    contentDescription = "Pokémon no descubierto",
+                    modifier = Modifier.size(110.dp),
                     colorFilter = ColorFilter.tint(
-                        color = Color(0xFF1A1A1A),
+                        color = Color.Black.copy(alpha = 0.8f),
                         blendMode = BlendMode.SrcAtop
                     )
                 )
                 Text(
                     text = "#${pokemon.id}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "???",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

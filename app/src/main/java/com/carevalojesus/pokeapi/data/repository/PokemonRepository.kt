@@ -8,10 +8,22 @@ import com.carevalojesus.pokeapi.domain.model.Stat
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 
 class PokemonRepository {
 
     private val api = RetrofitClient.api
+    private val typeConcurrencyLimit = 12
+
+    companion object {
+        private val pokemonTypesCache = ConcurrentHashMap<Int, List<String>>()
+
+        fun clearCache() {
+            pokemonTypesCache.clear()
+        }
+    }
 
     private val typeTranslations = mapOf(
         "normal" to "Normal",
@@ -43,8 +55,8 @@ class PokemonRepository {
         "speed" to "Velocidad"
     )
 
-    suspend fun getPokemonList(): List<PokemonItem> {
-        val response = api.getPokemonList()
+    suspend fun getPokemonList(limit: Int = 20, offset: Int = 0): List<PokemonItem> {
+        val response = api.getPokemonList(limit = limit, offset = offset)
         return response.results.map { entry ->
             val id = entry.url.trimEnd('/').split("/").last().toInt()
             PokemonItem(
@@ -89,13 +101,9 @@ class PokemonRepository {
             async {
                 try {
                     val detail = api.getPokemonDetail(id)
-                    val species = try { api.getPokemonSpecies(id) } catch (_: Exception) { null }
-                    val spanishName = species?.names
-                        ?.firstOrNull { it.language.name == "es" }?.name
-                        ?: detail.name.replaceFirstChar { it.uppercase() }
                     PokemonItem(
                         id = id,
-                        name = spanishName,
+                        name = detail.name.replaceFirstChar { it.uppercase() },
                         imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png",
                         types = detail.types.map { it.type.name }
                     )
@@ -105,6 +113,29 @@ class PokemonRepository {
                         name = "Pokemon #$id",
                         imageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$id.png"
                     )
+                }
+            }
+        }.awaitAll().sortedBy { it.id }
+    }
+
+    suspend fun fillPokemonTypes(items: List<PokemonItem>): List<PokemonItem> = coroutineScope {
+        val semaphore = Semaphore(typeConcurrencyLimit)
+        items.map { pokemon ->
+            async {
+                val cachedTypes = pokemonTypesCache[pokemon.id]
+                if (cachedTypes != null) {
+                    return@async pokemon.copy(types = cachedTypes)
+                }
+
+                semaphore.withPermit {
+                    try {
+                        val detail = api.getPokemonDetail(pokemon.id)
+                        val types = detail.types.map { it.type.name }
+                        pokemonTypesCache[pokemon.id] = types
+                        pokemon.copy(types = types)
+                    } catch (_: Exception) {
+                        pokemon
+                    }
                 }
             }
         }.awaitAll().sortedBy { it.id }

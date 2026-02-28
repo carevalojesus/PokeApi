@@ -27,6 +27,7 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
     private val firebaseRepository = app.firebaseRepository
     private val ownedPokemonRepository = app.ownedPokemonRepository
     private val unlockRepository = app.unlockRepository
+    private val missionRepository = app.missionRepository
 
     private val _uiState = MutableStateFlow<RewardUiState>(RewardUiState.Idle)
     val uiState: StateFlow<RewardUiState> = _uiState
@@ -54,7 +55,9 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     val ownedCount = ownedPokemonRepository.getAll().first().size
                     val unlockedCount = unlockRepository.getAll().first().size
-                    app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
+                    val points = app.userRepository.getPoints()
+                    app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                    missionRepository.onRewardQrScanned(campaignId)
                     _uiState.value = RewardUiState.Success(
                         rewardIds = result.rewardIds,
                         names = result.rewardIds.map { PokemonNames.getName(it) }

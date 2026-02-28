@@ -39,6 +39,9 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
     private val _campaigns = MutableStateFlow<List<CampaignInfo>>(emptyList())
     val campaigns: StateFlow<List<CampaignInfo>> = _campaigns
 
+    private val _broadcastStatus = MutableStateFlow<String?>(null)
+    val broadcastStatus: StateFlow<String?> = _broadcastStatus
+
     fun refreshTrainers() {
         viewModelScope.launch {
             val result = firebaseRepository.getTrainersWithInventory()
@@ -59,7 +62,7 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
                 _campaigns.value = result.getOrDefault(emptyList())
             } else {
                 _uiState.value = AdminUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo cargar campanas"
+                    result.exceptionOrNull()?.message ?: "No se pudo cargar campañas"
                 )
             }
         }
@@ -70,7 +73,7 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
             val result = firebaseRepository.toggleCampaignActive(campaignId, active)
             if (result.isFailure) {
                 _uiState.value = AdminUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo actualizar campana"
+                    result.exceptionOrNull()?.message ?: "No se pudo actualizar campaña"
                 )
             }
             refreshCampaigns()
@@ -82,7 +85,7 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
             val result = firebaseRepository.deleteCampaign(campaignId)
             if (result.isFailure) {
                 _uiState.value = AdminUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo eliminar campana"
+                    result.exceptionOrNull()?.message ?: "No se pudo eliminar campaña"
                 )
             }
             refreshCampaigns()
@@ -95,7 +98,7 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
             val result = firebaseRepository.createRewardCampaign(name)
             if (result.isFailure) {
                 _uiState.value = AdminUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo crear campana"
+                    result.exceptionOrNull()?.message ?: "No se pudo crear campaña"
                 )
                 return@launch
             }
@@ -110,6 +113,37 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
             )
             refreshCampaigns()
         }
+    }
+
+    fun showCampaignQr(campaign: CampaignInfo) {
+        viewModelScope.launch {
+            val payload = campaign.qrPayload.ifBlank {
+                "pokeapi://reward?campaignId=${campaign.campaignId}"
+            }
+            val bitmap = BarcodeEncoder().encodeBitmap(payload, BarcodeFormat.QR_CODE, 520, 520)
+            _uiState.value = AdminUiState.CampaignCreated(
+                campaignId = campaign.campaignId,
+                campaignName = campaign.name,
+                payload = payload,
+                bitmap = bitmap
+            )
+        }
+    }
+
+    fun sendNotificationToTrainers(title: String, message: String) {
+        viewModelScope.launch {
+            val result = firebaseRepository.sendAdminBroadcastNotification(title, message)
+            if (result.isSuccess) {
+                val recipients = result.getOrDefault(0)
+                _broadcastStatus.value = "Notificación enviada a $recipients entrenadores."
+            } else {
+                _broadcastStatus.value = result.exceptionOrNull()?.message ?: "No se pudo enviar la notificación"
+            }
+        }
+    }
+
+    fun clearBroadcastStatus() {
+        _broadcastStatus.value = null
     }
 
     fun clearMessage() {

@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.carevalojesus.pokeapi.data.repository.MarketplaceCategory
+import com.carevalojesus.pokeapi.data.repository.MarketplaceCatalog
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -77,12 +80,35 @@ fun ProfileScreen(
     val ownedPokemon by viewModel.ownedPokemon.collectAsState(initial = emptyList())
     val unlockedPokemon by viewModel.unlockedPokemon.collectAsState(initial = emptyList())
     val trades by viewModel.trades.collectAsState(initial = emptyList())
+    val equippedItems by viewModel.equippedMarketplaceItems.collectAsState(initial = emptyList())
 
     val points = profile?.points ?: 0
     val pointsToNext = 10 - (points % 10)
     val progressInCycle = (points % 10) / 10f
 
     var showEditDialog by remember { mutableStateOf(false) }
+
+    val equippedTitle = equippedItems.firstOrNull { it.category == MarketplaceCategory.TITLE }
+    val equippedAvatar = equippedItems.firstOrNull { it.category == MarketplaceCategory.AVATAR }
+    val equippedFrame = equippedItems.firstOrNull { it.category == MarketplaceCategory.FRAME }
+    val equippedBackground = equippedItems.firstOrNull { it.category == MarketplaceCategory.BACKGROUND }
+    val equippedCardTheme = equippedItems.firstOrNull { it.category == MarketplaceCategory.CARD_THEME }
+    val equippedBadge = equippedItems.firstOrNull { it.category == MarketplaceCategory.BADGE }
+
+    val profileBackgroundColor = when (equippedBackground?.id) {
+        "item_09" -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+        "item_18" -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        else -> Color.Transparent
+    }
+    val frameColor = when (equippedFrame?.id) {
+        "item_10" -> MaterialTheme.colorScheme.outline
+        "item_17" -> Color(0xFFD4AF37)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val pointsCardColor = when (equippedCardTheme?.id) {
+        "item_05" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+        else -> MaterialTheme.colorScheme.surface
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -109,6 +135,7 @@ fun ProfileScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .background(profileBackgroundColor)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -120,6 +147,7 @@ fun ProfileScreen(
                 modifier = Modifier
                     .size(120.dp)
                     .clip(CircleShape)
+                    .border(width = 4.dp, color = frameColor, shape = CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable {
                         photoPickerLauncher.launch(
@@ -136,16 +164,24 @@ fun ProfileScreen(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Icon(
-                        Icons.Default.Person,
-                        contentDescription = "Sin foto",
-                        modifier = Modifier.size(60.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (equippedAvatar != null) {
+                        Text(
+                            text = equippedAvatar.name.removePrefix("Avatar ").uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "Sin foto",
+                            modifier = Modifier.size(60.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             Text(
-                text = "Toca para cambiar foto",
+                text = "Toca para cambiar la foto",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -159,6 +195,13 @@ fun ProfileScreen(
                     Text(
                         text = fullName,
                         style = MaterialTheme.typography.headlineSmall
+                    )
+                }
+                if (equippedTitle != null) {
+                    Text(
+                        text = equippedTitle.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -180,11 +223,12 @@ fun ProfileScreen(
             // Puntos
             Card(
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = pointsCardColor)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Puntos de exploracion",
+                        text = "Puntos de exploración",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -195,7 +239,7 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Proximo desbloqueo en $pointsToNext visitas",
+                        text = "Próximo desbloqueo en $pointsToNext puntos",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -209,16 +253,46 @@ fun ProfileScreen(
                 }
             }
 
+            if (equippedItems.isNotEmpty()) {
+                Card(
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Personalización activa",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = equippedItems.joinToString(" • ") {
+                                "${MarketplaceCatalog.categoryLabel(it.category)}: ${it.name}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (equippedBadge != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Emblema visible: ${equippedBadge.name}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
             // Stats
             Text(
-                text = "Estadisticas",
+                text = "Estadísticas",
                 style = MaterialTheme.typography.titleLarge
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatCard(label = "Pokemon", value = "${ownedPokemon.size}")
+                StatCard(label = "Pokémon", value = "${ownedPokemon.size}")
                 StatCard(label = "Desbloqueados", value = "${unlockedPokemon.size}")
                 StatCard(label = "Intercambios", value = "${trades.size}")
             }
@@ -248,7 +322,7 @@ fun ProfileScreen(
                 onClick = onLogout,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Cerrar sesion")
+                Text("Cerrar sesión")
             }
         }
     }

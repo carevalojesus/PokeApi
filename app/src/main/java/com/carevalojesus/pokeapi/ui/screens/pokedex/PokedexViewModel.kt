@@ -28,6 +28,8 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
 
     private var allPokemon: List<PokemonItem> = emptyList()
     private var discoveredIds: Set<Int> = emptySet()
+    private var areTypesLoaded = false
+    private var isLoadingTypes = false
 
     private val _uiState = MutableStateFlow<PokedexUiState>(PokedexUiState.Loading)
     val uiState: StateFlow<PokedexUiState> = _uiState
@@ -78,12 +80,31 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _uiState.value = PokedexUiState.Loading
             try {
-                allPokemon = repository.getPokemonsByIds(GEN1_IDS)
+                allPokemon = repository
+                    .getPokemonList(limit = GEN1_IDS.size, offset = 0)
+                    .filter { it.id in GEN1_IDS }
+                    .sortedBy { it.id }
+                areTypesLoaded = false
                 applyFilters()
+                loadTypesInBackground()
             } catch (e: Exception) {
                 _uiState.value = PokedexUiState.Error(
                     e.message ?: "Error desconocido"
                 )
+            }
+        }
+    }
+
+    private fun loadTypesInBackground() {
+        if (isLoadingTypes || areTypesLoaded || allPokemon.isEmpty()) return
+        viewModelScope.launch {
+            isLoadingTypes = true
+            try {
+                allPokemon = repository.fillPokemonTypes(allPokemon)
+                areTypesLoaded = true
+                applyFilters()
+            } finally {
+                isLoadingTypes = false
             }
         }
     }
@@ -107,6 +128,8 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
 
     fun loadPokemonList() {
         allPokemon = emptyList()
+        areTypesLoaded = false
+        isLoadingTypes = false
         loadAllGen1()
     }
 
@@ -117,6 +140,9 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
 
     fun onTypeSelected(type: String?) {
         _selectedType.value = if (_selectedType.value == type) null else type
+        if (_selectedType.value != null && !areTypesLoaded) {
+            loadTypesInBackground()
+        }
         applyFilters()
     }
 
@@ -148,7 +174,7 @@ class PokedexViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        if (type != null) {
+        if (type != null && areTypesLoaded) {
             filtered = filtered.filter { pokemon ->
                 pokemon.types.contains(type)
             }

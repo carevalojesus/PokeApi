@@ -44,13 +44,18 @@ class ProfileSetupViewModel(application: Application) : AndroidViewModel(applica
         if (_isSaving.value) return
         _isSaving.value = true
         viewModelScope.launch {
-            app.userRepository.ensureProfileExists()
-            app.userRepository.updatePersonalInfo(firstName, lastName, birthDate, gender)
-            if (_photoPath.value.isNotEmpty()) {
-                app.userRepository.updateProfilePhoto(_photoPath.value)
+            try {
+                app.userRepository.ensureProfileExists()
+                app.userRepository.updatePersonalInfo(firstName, lastName, birthDate, gender)
+                if (_photoPath.value.isNotEmpty()) {
+                    app.userRepository.updateProfilePhoto(_photoPath.value)
+                }
+                app.firebaseRepository.updateTrainerPersonalInfo(firstName, lastName, birthDate, gender)
+                app.missionRepository.onProfileCompleted()
+                onComplete()
+            } catch (_: Exception) {
+                _isSaving.value = false
             }
-            app.firebaseRepository.updateTrainerPersonalInfo(firstName, lastName, birthDate, gender)
-            onComplete()
         }
     }
 }

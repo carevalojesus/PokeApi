@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -27,9 +26,7 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
     private val repository = PokemonRepository()
     private val app = application as PokeApiApplication
     private val favoritesRepository = app.favoritesRepository
-    private val userRepository = app.userRepository
-    private val unlockRepository = app.unlockRepository
-    private val ownedPokemonRepository = app.ownedPokemonRepository
+    private val missionRepository = app.missionRepository
 
     private val _uiState = MutableStateFlow<PokemonDetailUiState>(PokemonDetailUiState.Loading)
     val uiState: StateFlow<PokemonDetailUiState> = _uiState
@@ -51,30 +48,21 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
                 val detail = repository.getPokemonDetail(id)
                 _uiState.value = PokemonDetailUiState.Success(detail)
 
-                // Add points and check for unlock
-                val totalPoints = userRepository.addPointsAndGetTotal(1)
-                if (totalPoints > 0 && totalPoints % 10 == 0) {
-                    val unlockId = unlockRepository.getRandomUnlockable()
-                    if (unlockId != null) {
-                        unlockRepository.unlock(unlockId)
-                        ownedPokemonRepository.add(unlockId)
-                        val ownedCount = ownedPokemonRepository.getAll().first().size
-                        val unlockedCount = unlockRepository.getAll().first().size
-                        app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
-                        val unlockDetail = try {
-                            repository.getPokemonDetail(unlockId)
-                        } catch (_: Exception) {
-                            null
-                        }
-                        _unlockEvent.emit(
-                            UnlockEvent(
-                                pokemonId = unlockId,
-                                pokemonName = unlockDetail?.name ?: "Pokemon #$unlockId",
-                                imageUrl = unlockDetail?.imageUrl
-                                    ?: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$unlockId.png"
-                            )
-                        )
+                val missionResult = missionRepository.onPokemonViewed(id)
+                missionResult.unlockedPokemonIds.forEach { unlockId ->
+                    val unlockDetail = try {
+                        repository.getPokemonDetail(unlockId)
+                    } catch (_: Exception) {
+                        null
                     }
+                    _unlockEvent.emit(
+                        UnlockEvent(
+                            pokemonId = unlockId,
+                            pokemonName = unlockDetail?.name ?: "Pokémon #$unlockId",
+                            imageUrl = unlockDetail?.imageUrl
+                                ?: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/$unlockId.png"
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 _uiState.value = PokemonDetailUiState.Error(
@@ -92,6 +80,7 @@ class PokemonDetailViewModel(application: Application) : AndroidViewModel(applic
                 favoritesRepository.remove(id)
             } else {
                 favoritesRepository.add(id)
+                missionRepository.onPokemonFavorited(id)
             }
         }
     }

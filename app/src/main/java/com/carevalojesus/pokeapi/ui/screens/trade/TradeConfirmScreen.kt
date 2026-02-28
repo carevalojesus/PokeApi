@@ -67,7 +67,7 @@ fun TradeConfirmScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (tradeOffer?.isConfirmation == true) "Confirmacion"
+                        if (tradeOffer?.isConfirmation == true) "Confirmación"
                         else "Oferta de intercambio"
                     )
                 },
@@ -97,12 +97,12 @@ fun TradeConfirmScreen(
             if (tradeOffer == null) {
                 Spacer(modifier = Modifier.height(32.dp))
                 Text(
-                    text = "QR invalido",
+                    text = "QR inválido",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.error
                 )
                 Text(
-                    text = "No se pudo leer la informacion del intercambio",
+                    text = "No se pudo leer la información del intercambio",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -124,7 +124,7 @@ fun TradeConfirmScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             Text(
-                                text = "Intercambio aceptado!",
+                                text = "¡Intercambio aceptado!",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -154,7 +154,7 @@ fun TradeConfirmScreen(
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "Se agrego a tu coleccion",
+                                            text = "Se agregó a tu colección",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
@@ -163,7 +163,7 @@ fun TradeConfirmScreen(
                             }
 
                             Text(
-                                text = "Ahora muestra este QR al otro entrenador para que reciba su Pokemon",
+                                text = "Ahora muestra este QR al otro entrenador para que reciba su Pokémon",
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -206,7 +206,7 @@ fun TradeConfirmScreen(
                         ) {
                             Spacer(modifier = Modifier.height(24.dp))
                             Text(
-                                text = "Intercambio completado!",
+                                text = "¡Intercambio completado!",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -234,7 +234,7 @@ fun TradeConfirmScreen(
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Obtuviste a ${state.receivedPokemonName}!",
+                                text = "¡Obtuviste a ${state.receivedPokemonName}!",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -244,7 +244,7 @@ fun TradeConfirmScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Se agrego a tu coleccion y Pokedex",
+                                text = "Se agregó a tu colección y Pokédex",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -296,12 +296,12 @@ fun TradeConfirmScreen(
                     if (tradeOffer.isConfirmation) {
                         // A scanned B's confirmation QR
                         Text(
-                            text = "Confirmacion recibida",
+                            text = "Confirmación recibida",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "El otro entrenador acepto tu intercambio",
+                            text = "El otro entrenador aceptó tu intercambio",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -328,7 +328,7 @@ fun TradeConfirmScreen(
                             )
                         ) {
                             Text(
-                                text = "Tu Pokemon se queda contigo. Solo recibiras una copia del Pokemon del otro entrenador.",
+                                text = "Tu Pokémon se queda contigo. Solo recibirás una copia del Pokémon del otro entrenador.",
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -382,7 +382,7 @@ fun TradeConfirmScreen(
                             )
                         ) {
                             Text(
-                                text = "Tu Pokemon se queda contigo. Solo compartes una copia con el otro entrenador.",
+                                text = "Tu Pokémon se queda contigo. Solo compartes una copia con el otro entrenador..",
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

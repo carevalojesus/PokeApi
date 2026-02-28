@@ -5,8 +5,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -37,7 +40,8 @@ data class TrainerWithInventory(
     val gender: String,
     val inventory: List<InventoryCount>,
     val ownedPokemonCount: Int = 0,
-    val unlockedPokemonCount: Int = 0
+    val unlockedPokemonCount: Int = 0,
+    val points: Int = 0
 )
 
 data class CampaignInfo(
@@ -46,7 +50,17 @@ data class CampaignInfo(
     val active: Boolean,
     val rewardCount: Int,
     val createdAt: com.google.firebase.Timestamp?,
-    val claimCount: Int
+    val claimCount: Int,
+    val qrPayload: String = ""
+)
+
+data class AppNotification(
+    val id: String,
+    val title: String,
+    val message: String,
+    val type: String,
+    val read: Boolean,
+    val createdAt: com.google.firebase.Timestamp?
 )
 
 sealed interface ClaimRewardResult {
@@ -64,6 +78,7 @@ class FirebaseRepository(
         private const val TRAINERS = "trainers"
         private const val CAMPAIGNS = "campaigns"
         private const val CLAIMS = "claims"
+        private const val NOTIFICATIONS = "notifications"
     }
 
     suspend fun resolveCurrentUserRole(): AppUserRole? {
@@ -75,15 +90,21 @@ class FirebaseRepository(
 
     suspend fun registerTrainer(email: String, password: String): Result<Unit> {
         return runCatching {
-            val result = auth.createUserWithEmailAndPassword(email.trim(), password).await()
+            val normalizedEmail = email.trim().lowercase()
+            if (!normalizedEmail.endsWith("@senati.pe")) {
+                error("Solo se permiten correos institucionales @senati.pe para entrenadores")
+            }
+            val result = auth.createUserWithEmailAndPassword(normalizedEmail, password).await()
             val uid = result.user?.uid ?: error("No se pudo obtener el UID")
-            ensureTrainerDoc(uid, result.user?.email ?: email.trim())
+            ensureTrainerDoc(uid, result.user?.email ?: normalizedEmail)
+            notifyAdminsNewTrainer(result.user?.email ?: normalizedEmail)
         }
     }
 
     suspend fun signInTrainer(email: String, password: String): Result<Unit> {
         return runCatching {
-            val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
+            val normalizedEmail = email.trim().lowercase()
+            val result = auth.signInWithEmailAndPassword(normalizedEmail, password).await()
             val uid = result.user?.uid ?: error("No se pudo obtener el UID")
             val doc = firestore.collection(TRAINERS).document(uid).get().await()
             val role = doc.getString("role")?.lowercase()
@@ -91,13 +112,14 @@ class FirebaseRepository(
                 auth.signOut()
                 error("Esta cuenta es admin, usa acceso administrador")
             }
-            ensureTrainerDoc(uid, result.user?.email ?: email.trim())
+            ensureTrainerDoc(uid, result.user?.email ?: normalizedEmail)
         }
     }
 
     suspend fun signInAdmin(email: String, password: String): Result<Unit> {
         return runCatching {
-            val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
+            val normalizedEmail = email.trim().lowercase()
+            val result = auth.signInWithEmailAndPassword(normalizedEmail, password).await()
             val uid = result.user?.uid ?: error("No se pudo obtener el UID")
             val doc = firestore.collection(TRAINERS).document(uid).get().await()
             val role = doc.getString("role")?.lowercase()
@@ -129,6 +151,7 @@ class FirebaseRepository(
                     "name" to safeName,
                     "active" to true,
                     "rewardCount" to rewardCount,
+                    "qrPayload" to payload,
                     "pool" to pool,
                     "createdBy" to uid,
                     "createdAt" to FieldValue.serverTimestamp()
@@ -260,6 +283,7 @@ class FirebaseRepository(
 
                         val ownedCount = (doc.getLong("ownedPokemonCount") ?: 0L).toInt()
                         val unlockedCount = (doc.getLong("unlockedPokemonCount") ?: 0L).toInt()
+                        val points = (doc.getLong("points") ?: 0L).toInt()
 
                         TrainerWithInventory(
                             uid = uid,
@@ -271,7 +295,8 @@ class FirebaseRepository(
                             gender = gender,
                             inventory = inventory,
                             ownedPokemonCount = ownedCount,
-                            unlockedPokemonCount = unlockedCount
+                            unlockedPokemonCount = unlockedCount,
+                            points = points
                         )
                     }
                 }.awaitAll()
@@ -321,6 +346,8 @@ class FirebaseRepository(
                         val active = doc.getBoolean("active") ?: false
                         val rewardCount = (doc.getLong("rewardCount") ?: 3L).toInt()
                         val createdAt = doc.getTimestamp("createdAt")
+                        val qrPayload = doc.getString("qrPayload")
+                            ?: "pokeapi://reward?campaignId=$id"
 
                         val claimCount = firestore.collection(CAMPAIGNS)
                             .document(id)
@@ -335,7 +362,8 @@ class FirebaseRepository(
                             active = active,
                             rewardCount = rewardCount,
                             createdAt = createdAt,
-                            claimCount = claimCount
+                            claimCount = claimCount,
+                            qrPayload = qrPayload
                         )
                     }
                 }.awaitAll()
@@ -355,12 +383,99 @@ class FirebaseRepository(
         }
     }
 
-    suspend fun syncTrainerStats(ownedCount: Int, unlockedCount: Int) {
+    fun observeNotificationsForCurrentUser(): Flow<List<AppNotification>> = callbackFlow {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val registration = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection(NOTIFICATIONS)
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, _ ->
+                val items = snapshot?.documents.orEmpty().map { doc ->
+                    AppNotification(
+                        id = doc.id,
+                        title = doc.getString("title") ?: "Notificación",
+                        message = doc.getString("message") ?: "",
+                        type = doc.getString("type") ?: "general",
+                        read = doc.getBoolean("read") ?: false,
+                        createdAt = doc.getTimestamp("createdAt")
+                    )
+                }
+                trySend(items)
+            }
+
+        awaitClose { registration.remove() }
+    }
+
+    suspend fun markNotificationAsRead(notificationId: String): Result<Unit> {
+        return runCatching {
+            val uid = auth.currentUser?.uid ?: error("No hay sesión activa")
+            firestore.collection(TRAINERS)
+                .document(uid)
+                .collection(NOTIFICATIONS)
+                .document(notificationId)
+                .set(
+                    mapOf(
+                        "read" to true,
+                        "readAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+        }
+    }
+
+    suspend fun sendAdminBroadcastNotification(title: String, message: String): Result<Int> {
+        return runCatching {
+            val uid = auth.currentUser?.uid ?: error("No hay sesión activa")
+            val actorDoc = firestore.collection(TRAINERS).document(uid).get().await()
+            val role = actorDoc.getString("role")?.lowercase()
+            if (role != "admin") error("Solo un admin puede enviar notificaciones")
+
+            val safeTitle = title.trim().ifEmpty { "Aviso del administrador" }
+            val safeMessage = message.trim()
+            if (safeMessage.isBlank()) error("El mensaje no puede estar vacío")
+
+            val trainers = firestore.collection(TRAINERS)
+                .whereEqualTo("role", "trainer")
+                .get()
+                .await()
+                .documents
+
+            if (trainers.isEmpty()) return@runCatching 0
+
+            val batch = firestore.batch()
+            trainers.forEach { trainer ->
+                val notifRef = trainer.reference.collection(NOTIFICATIONS).document(UUID.randomUUID().toString())
+                batch.set(
+                    notifRef,
+                    mapOf(
+                        "title" to safeTitle,
+                        "message" to safeMessage,
+                        "type" to "admin_broadcast",
+                        "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "createdBy" to uid
+                    )
+                )
+            }
+            batch.commit().await()
+            trainers.size
+        }
+    }
+
+    suspend fun syncTrainerStats(ownedCount: Int, unlockedCount: Int, points: Int) {
         val uid = auth.currentUser?.uid ?: return
         firestore.collection(TRAINERS).document(uid).set(
             mapOf(
                 "ownedPokemonCount" to ownedCount,
                 "unlockedPokemonCount" to unlockedCount,
+                "points" to points,
                 "updatedAt" to FieldValue.serverTimestamp()
             ),
             SetOptions.merge()
@@ -379,5 +494,33 @@ class FirebaseRepository(
             ),
             SetOptions.merge()
         ).await()
+    }
+
+    private suspend fun notifyAdminsNewTrainer(trainerEmail: String) {
+        runCatching {
+            val admins = firestore.collection(TRAINERS)
+                .whereEqualTo("role", "admin")
+                .get()
+                .await()
+                .documents
+
+            if (admins.isEmpty()) return
+
+            val batch = firestore.batch()
+            admins.forEach { adminDoc ->
+                val notifRef = adminDoc.reference.collection(NOTIFICATIONS).document(UUID.randomUUID().toString())
+                batch.set(
+                    notifRef,
+                    mapOf(
+                        "title" to "Nuevo entrenador registrado",
+                        "message" to "Se registró: $trainerEmail",
+                        "type" to "new_trainer",
+                        "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                )
+            }
+            batch.commit().await()
+        }
     }
 }

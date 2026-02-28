@@ -25,6 +25,9 @@ interface UserProfileDao {
     @Query("UPDATE user_profile SET points = points + :amount")
     suspend fun addPoints(amount: Int)
 
+    @Query("UPDATE user_profile SET points = points - :amount WHERE points >= :amount")
+    suspend fun spendPoints(amount: Int): Int
+
     @Query("UPDATE user_profile SET starterChosen = 1, starterPokemonId = :pokemonId")
     suspend fun setStarter(pokemonId: Int)
 

@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -43,6 +44,7 @@ import com.carevalojesus.pokeapi.ui.screens.reward.RewardScanScreen
 import com.carevalojesus.pokeapi.ui.screens.starter.StarterScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeConfirmScreen
 import com.carevalojesus.pokeapi.ui.screens.trade.TradeScanScreen
+import com.carevalojesus.pokeapi.ui.notifications.SystemNotificationsBridge
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
@@ -51,19 +53,23 @@ fun AppNav(
     authViewModel: AuthViewModel = viewModel()
 ) {
     val authState by authViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val app = context.applicationContext as? PokeApiApplication
 
-    when (val state = authState) {
-        AuthUiState.Loading -> LoadingState("Validando sesion...")
+    LaunchedEffect(authState, app) {
+        if (app == null) return@LaunchedEffect
+        when (authState) {
+            AuthUiState.Admin, AuthUiState.Trainer -> {
+                SystemNotificationsBridge.start(context, app.firebaseRepository)
+            }
+            else -> {
+                SystemNotificationsBridge.stop()
+            }
+        }
+    }
 
-        AuthUiState.LoggedOut -> AuthNav(
-            authViewModel = authViewModel,
-            errorMessage = null
-        )
-
-        is AuthUiState.Error -> AuthNav(
-            authViewModel = authViewModel,
-            errorMessage = state.message
-        )
+    when (authState) {
+        AuthUiState.Loading -> LoadingState("Validando sesión...")
 
         AuthUiState.Admin -> AdminScreen(
             onLogout = authViewModel::signOut
@@ -72,26 +78,34 @@ fun AppNav(
         AuthUiState.Trainer -> TrainerAppNav(
             onLogout = authViewModel::signOut
         )
+
+        AuthUiState.LoggedOut, is AuthUiState.Error -> AuthNav(
+            authViewModel = authViewModel
+        )
     }
 }
 
 @Composable
 private fun AuthNav(
-    authViewModel: AuthViewModel,
-    errorMessage: String?
+    authViewModel: AuthViewModel
 ) {
     val authNavController = rememberNavController()
+    val authError by authViewModel.authError.collectAsState()
+    val isAuthenticating by authViewModel.isAuthenticating.collectAsState()
 
     NavHost(navController = authNavController, startDestination = "welcome") {
         composable(route = "welcome") {
             WelcomeScreen(
                 onNavigateToTrainerLogin = {
+                    authViewModel.clearError()
                     authNavController.navigate("trainer_auth/false")
                 },
                 onNavigateToTrainerRegister = {
+                    authViewModel.clearError()
                     authNavController.navigate("trainer_auth/true")
                 },
                 onNavigateToAdminLogin = {
+                    authViewModel.clearError()
                     authNavController.navigate("admin_auth")
                 }
             )
@@ -105,26 +119,31 @@ private fun AuthNav(
             TrainerAuthScreen(
                 isRegisterMode = isRegister,
                 onLogin = { email, password ->
-                    authViewModel.clearError()
                     authViewModel.signInTrainer(email, password)
                 },
                 onRegister = { email, password ->
-                    authViewModel.clearError()
                     authViewModel.registerTrainer(email, password)
                 },
-                onBack = { authNavController.popBackStack() },
-                errorMessage = errorMessage
+                onBack = {
+                    authViewModel.clearError()
+                    authNavController.popBackStack()
+                },
+                errorMessage = authError,
+                isLoading = isAuthenticating
             )
         }
 
         composable(route = "admin_auth") {
             AdminAuthScreen(
                 onLogin = { email, password ->
-                    authViewModel.clearError()
                     authViewModel.signInAdmin(email, password)
                 },
-                onBack = { authNavController.popBackStack() },
-                errorMessage = errorMessage
+                onBack = {
+                    authViewModel.clearError()
+                    authNavController.popBackStack()
+                },
+                errorMessage = authError,
+                isLoading = isAuthenticating
             )
         }
     }
@@ -139,7 +158,7 @@ private fun TrainerAppNav(onLogout: () -> Unit) {
         key1 = app
     ) {
         if (app == null) {
-            value = ProfileCheckState.Error("No se pudo inicializar la aplicacion.")
+            value = ProfileCheckState.Error("No se pudo inicializar la aplicación.")
             return@produceState
         }
         app.userRepository.getProfile()

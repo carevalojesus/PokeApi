@@ -37,6 +37,7 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
     private val ownedPokemonRepository = app.ownedPokemonRepository
     private val unlockRepository = app.unlockRepository
     private val tradeRepository = app.tradeRepository
+    private val missionRepository = app.missionRepository
 
     private val gson = Gson()
 
@@ -51,11 +52,11 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = TradeUiState.Creating
             try {
                 if (!ownedPokemonRepository.owns(offeredPokemonId)) {
-                    _uiState.value = TradeUiState.Error("No posees ese Pokemon")
+                    _uiState.value = TradeUiState.Error("No posees ese Pokémon")
                     return@launch
                 }
                 if (requestedPokemonId !in 1..151) {
-                    _uiState.value = TradeUiState.Error("ID invalido (debe ser entre 1 y 151)")
+                    _uiState.value = TradeUiState.Error("ID inválido (debe ser entre 1 y 151)")
                     return@launch
                 }
 
@@ -126,7 +127,9 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
 
                 val ownedCount = ownedPokemonRepository.getAll().first().size
                 val unlockedCount = unlockRepository.getAll().first().size
-                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
+                val points = app.userRepository.getPoints()
+                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                missionRepository.onTradeCompleted(tradeOffer.tradeId, "acceptor")
 
                 // Save trade record on B's side
                 tradeRepository.insert(
@@ -176,7 +179,9 @@ class TradeViewModel(application: Application) : AndroidViewModel(application) {
 
                 val ownedCount = ownedPokemonRepository.getAll().first().size
                 val unlockedCount = unlockRepository.getAll().first().size
-                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
+                val points = app.userRepository.getPoints()
+                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                missionRepository.onTradeCompleted(tradeOffer.tradeId, "creator")
 
                 // Update trade status
                 tradeRepository.update(

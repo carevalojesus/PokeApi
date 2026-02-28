@@ -54,17 +54,22 @@ class StarterViewModel(application: Application) : AndroidViewModel(application)
         _isConfirming.value = true
         val finalNickname = _nickname.value.ifBlank { starter.name }
         viewModelScope.launch {
-            userRepository.ensureProfileExists()
-            userRepository.setStarter(starter.pokemonId)
-            ownedPokemonRepository.add(
-                pokemonId = starter.pokemonId,
-                nickname = finalNickname,
-                isStarter = true
-            )
-            val ownedCount = ownedPokemonRepository.getAll().first().size
-            val unlockedCount = unlockRepository.getAll().first().size
-            app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount)
-            onComplete()
+            try {
+                userRepository.ensureProfileExists()
+                userRepository.setStarter(starter.pokemonId)
+                ownedPokemonRepository.add(
+                    pokemonId = starter.pokemonId,
+                    nickname = finalNickname,
+                    isStarter = true
+                )
+                val ownedCount = ownedPokemonRepository.getAll().first().size
+                val unlockedCount = unlockRepository.getAll().first().size
+                val points = userRepository.getPoints()
+                app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
+                onComplete()
+            } catch (_: Exception) {
+                _isConfirming.value = false
+            }
         }
     }
 }

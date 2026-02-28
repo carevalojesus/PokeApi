@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,18 +65,18 @@ fun MyPokemonScreen(
         when (val result = starterChangeResult) {
             is StarterChangeResult.Success -> {
                 snackbarHostState.showSnackbar(
-                    "Pokemon principal cambiado! Te quedan ${result.changesRemaining} cambios."
+                    "¡Pokémon principal cambiado! Te quedan ${result.changesRemaining} cambios."
                 )
                 viewModel.clearStarterChangeResult()
             }
             is StarterChangeResult.NoChangesLeft -> {
                 snackbarHostState.showSnackbar(
-                    "Ya no te quedan cambios de Pokemon principal."
+                    "Ya no te quedan cambios de Pokémon principal."
                 )
                 viewModel.clearStarterChangeResult()
             }
             is StarterChangeResult.Error -> {
-                snackbarHostState.showSnackbar("Error al cambiar Pokemon principal.")
+                snackbarHostState.showSnackbar("Error al cambiar Pokémon principal.")
                 viewModel.clearStarterChangeResult()
             }
             null -> {}
@@ -86,7 +86,7 @@ fun MyPokemonScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mis Pokemon") },
+                title = { Text("Mis Pokémon") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -102,7 +102,7 @@ fun MyPokemonScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Aun no tienes Pokemon.\nVisita la Pokedex para desbloquear mas.",
+                    text = "Aún no tienes Pokémon.\nVisita la Pokédex para desbloquear más.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -125,6 +125,7 @@ fun MyPokemonScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 160.dp)
                             .combinedClickable(
                                 onClick = {
                                     if (pokemon.isNewFromTrade) {
@@ -138,7 +139,10 @@ fun MyPokemonScreen(
                                     }
                                 }
                             ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     ) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             Column(
@@ -156,19 +160,20 @@ fun MyPokemonScreen(
                                 Text(
                                     text = "#${pokemon.pokemonId}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
                                     text = name,
                                     style = MaterialTheme.typography.titleSmall,
                                     textAlign = TextAlign.Center,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 if (!pokemon.isStarter) {
                                     Text(
                                         text = "Mantener para hacer principal",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
                                         textAlign = TextAlign.Center
                                     )
                                 }
@@ -190,7 +195,7 @@ fun MyPokemonScreen(
                                 }
                                 if (pokemon.isNewFromTrade) {
                                     Badge(
-                                        containerColor = Color(0xFFFF9800)
+                                        containerColor = MaterialTheme.colorScheme.tertiary
                                     ) {
                                         Text("Intercambio")
                                     }
@@ -210,7 +215,7 @@ fun MyPokemonScreen(
 
         AlertDialog(
             onDismissRequest = { pokemonToChangeStarter = null },
-            title = { Text("Cambiar Pokemon principal") },
+            title = { Text("Cambiar Pokémon principal") },
             text = {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -236,7 +241,7 @@ fun MyPokemonScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     if (remaining > 0) {
                         Text(
-                            text = "Quieres que $pokemonName sea tu Pokemon principal?",
+                            text = "¿Quieres que $pokemonName sea tu Pokémon principal?",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -247,7 +252,7 @@ fun MyPokemonScreen(
                         )
                     } else {
                         Text(
-                            text = "Ya no te quedan cambios de Pokemon principal.",
+                            text = "Ya no te quedan cambios de Pokémon principal.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error
                         )

@@ -4,6 +4,9 @@ import android.app.Application
 import com.carevalojesus.pokeapi.data.local.PokeDatabase
 import com.carevalojesus.pokeapi.data.firebase.FirebaseRepository
 import com.carevalojesus.pokeapi.data.repository.FavoritesRepository
+import com.carevalojesus.pokeapi.data.repository.PokemonRepository
+import com.carevalojesus.pokeapi.data.repository.MarketplaceRepository
+import com.carevalojesus.pokeapi.data.repository.MissionRepository
 import com.carevalojesus.pokeapi.data.repository.OwnedPokemonRepository
 import com.carevalojesus.pokeapi.data.repository.TradeRepository
 import com.carevalojesus.pokeapi.data.repository.UnlockRepository
@@ -25,6 +28,22 @@ class PokeApiApplication : Application() {
             auth = FirebaseAuth.getInstance()
         )
     }
+    val missionRepository by lazy {
+        MissionRepository(
+            pointEventDao = database.pointEventDao(),
+            userRepository = userRepository,
+            ownedPokemonRepository = ownedPokemonRepository,
+            unlockRepository = unlockRepository,
+            firebaseRepository = firebaseRepository
+        )
+    }
+    val marketplaceRepository by lazy {
+        MarketplaceRepository(
+            dao = database.marketplaceItemDao(),
+            userRepository = userRepository,
+            missionRepository = missionRepository
+        )
+    }
 
     suspend fun clearAllLocalData() {
         database.userProfileDao().deleteAll()
@@ -32,5 +51,8 @@ class PokeApiApplication : Application() {
         database.unlockedPokemonDao().deleteAll()
         database.tradeDao().deleteAll()
         database.favoriteDao().deleteAll()
+        database.pointEventDao().deleteAll()
+        database.marketplaceItemDao().deleteAll()
+        PokemonRepository.clearCache()
     }
 }

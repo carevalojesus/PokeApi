@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -155,7 +153,7 @@ fun TradeScreen(
                     }
 
                     Text(
-                        text = "Nadie pierde su Pokemon. Ambos reciben una copia del Pokemon del otro.",
+                        text = "Nadie pierde su Pokémon. Ambos reciben una copia del Pokémon del otro.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -182,7 +180,7 @@ fun TradeScreen(
                         ) {
                             Spacer(modifier = Modifier.height(24.dp))
                             Text(
-                                text = "Intercambio exitoso!",
+                                text = "¡Intercambio exitoso!",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -210,7 +208,7 @@ fun TradeScreen(
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Obtuviste a ${state.receivedPokemonName}!",
+                                text = "¡Obtuviste a ${state.receivedPokemonName}!",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -254,7 +252,7 @@ fun TradeScreen(
                 else -> {
                     // Create trade form
                     Text(
-                        text = "Selecciona tu Pokemon",
+                        text = "Selecciona tu Pokémon",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -267,7 +265,7 @@ fun TradeScreen(
                             )
                         ) {
                             Text(
-                                text = "No tienes Pokemon disponibles para intercambiar",
+                                text = "No tienes Pokémon disponibles para intercambiar",
                                 modifier = Modifier.padding(16.dp),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -333,7 +331,7 @@ fun TradeScreen(
 
                     // Requested Pokemon section
                     Text(
-                        text = "Pokemon que deseas",
+                        text = "Pokémon que deseas",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -341,7 +339,7 @@ fun TradeScreen(
                     OutlinedTextField(
                         value = requestedIdText,
                         onValueChange = { requestedIdText = it.filter { c -> c.isDigit() } },
-                        label = { Text("Numero del Pokemon (1-151)") },
+                        label = { Text("Número del Pokémon (1-151)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -497,8 +495,8 @@ fun TradeScreen(
                         )
                     ) {
                         Text(
-                            text = "El intercambio es seguro: nadie pierde su Pokemon. " +
-                                    "Ambos entrenadores reciben una copia del Pokemon del otro.",
+                            text = "El intercambio es seguro: nadie pierde su Pokémon. " +
+                                    "Ambos entrenadores reciben una copia del Pokémon del otro.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -550,7 +548,7 @@ fun TradeScreen(
                                             text = if (trade.status == "completed") "Completado" else "Pendiente",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = if (trade.status == "completed")
-                                                Color(0xFF4CAF50)
+                                                MaterialTheme.colorScheme.tertiary
                                             else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }

@@ -28,6 +28,21 @@ class UserRepository(private val dao: UserProfileDao) {
         return dao.getPoints() ?: 0
     }
 
+    suspend fun addPoints(amount: Int) {
+        ensureProfileExists()
+        dao.addPoints(amount)
+    }
+
+    suspend fun getPoints(): Int {
+        return dao.getPoints() ?: 0
+    }
+
+    suspend fun spendPoints(amount: Int): Boolean {
+        ensureProfileExists()
+        if (amount <= 0) return true
+        return dao.spendPoints(amount) > 0
+    }
+
     suspend fun updatePersonalInfo(firstName: String, lastName: String, birthDate: String, gender: String) {
         ensureProfileExists()
         dao.updatePersonalInfo(firstName, lastName, birthDate, gender)

@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/trainers/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /trainers/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if false;
+
+      match /inventory/{pokemonId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if signedIn() && request.auth.uid == uid;
+        allow delete: if false;
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() && isAdmin();
+        allow update: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow delete: if signedIn() && isAdmin();
+      }
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /claims/{uid} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() && request.auth.uid == uid;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

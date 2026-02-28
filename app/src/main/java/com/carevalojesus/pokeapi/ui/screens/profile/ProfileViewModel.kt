@@ -10,6 +10,9 @@ import com.carevalojesus.pokeapi.data.local.OwnedPokemonEntity
 import com.carevalojesus.pokeapi.data.local.TradeEntity
 import com.carevalojesus.pokeapi.data.local.UnlockedPokemonEntity
 import com.carevalojesus.pokeapi.data.local.UserProfileEntity
+import com.carevalojesus.pokeapi.data.repository.MarketplaceCatalog
+import com.carevalojesus.pokeapi.data.repository.MarketplaceItem
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.io.File
@@ -22,6 +25,11 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     val ownedPokemon: Flow<List<OwnedPokemonEntity>> = app.ownedPokemonRepository.getAll()
     val unlockedPokemon: Flow<List<UnlockedPokemonEntity>> = app.unlockRepository.getAll()
     val trades: Flow<List<TradeEntity>> = app.tradeRepository.getAll()
+    val equippedMarketplaceItems: Flow<List<MarketplaceItem>> = app.marketplaceRepository
+        .getEquippedItemIdsFlow()
+        .map { equippedIds ->
+            MarketplaceCatalog.items.filter { it.id in equippedIds.toSet() }
+        }
 
     fun savePersonalInfo(firstName: String, lastName: String, birthDate: String, gender: String) {
         viewModelScope.launch {

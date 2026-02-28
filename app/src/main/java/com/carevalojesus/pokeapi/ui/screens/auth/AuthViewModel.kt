@@ -5,6 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
 import com.carevalojesus.pokeapi.data.firebase.AppUserRole
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
+import com.google.firebase.auth.FirebaseAuthWeakPasswordException
+import android.util.Patterns
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -21,9 +26,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as PokeApiApplication
     private val firebaseRepository = app.firebaseRepository
+    private val missionRepository = app.missionRepository
 
     private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Loading)
     val uiState: StateFlow<AuthUiState> = _uiState
+
+    private val _isAuthenticating = MutableStateFlow(false)
+    val isAuthenticating: StateFlow<Boolean> = _isAuthenticating
+
+    private val _authError = MutableStateFlow<String?>(null)
+    val authError: StateFlow<String?> = _authError
 
     init {
         refreshSession()
@@ -40,47 +52,95 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     null -> AuthUiState.LoggedOut
                 }
             } catch (e: Exception) {
-                _uiState.value = AuthUiState.Error(e.message ?: "No se pudo validar sesion")
+                _uiState.value = AuthUiState.LoggedOut
             }
         }
     }
 
     fun registerTrainer(email: String, password: String) {
+        if (_isAuthenticating.value) return
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            val result = firebaseRepository.registerTrainer(email, password)
-            if (result.isFailure) {
-                _uiState.value = AuthUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo registrar entrenador"
-                )
+            _isAuthenticating.value = true
+            _authError.value = null
+            val normalized = email.trim().lowercase()
+            if (!isValidEmail(normalized)) {
+                _authError.value = "Ingresa un correo electrónico válido"
+                _isAuthenticating.value = false
                 return@launch
             }
+            if (!normalized.endsWith("@senati.pe")) {
+                _authError.value = "Para registrarte como entrenador debes usar un correo @senati.pe"
+                _isAuthenticating.value = false
+                return@launch
+            }
+            if (password.length < 6) {
+                _authError.value = "La contraseña debe tener al menos 6 caracteres"
+                _isAuthenticating.value = false
+                return@launch
+            }
+            val result = firebaseRepository.registerTrainer(normalized, password)
+            if (result.isFailure) {
+                _authError.value = mapAuthError(result.exceptionOrNull())
+                _isAuthenticating.value = false
+                return@launch
+            }
+            _isAuthenticating.value = false
+            missionRepository.onDailyLogin()
             _uiState.value = AuthUiState.Trainer
         }
     }
 
     fun signInTrainer(email: String, password: String) {
+        if (_isAuthenticating.value) return
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            val result = firebaseRepository.signInTrainer(email, password)
-            if (result.isFailure) {
-                _uiState.value = AuthUiState.Error(
-                    result.exceptionOrNull()?.message ?: "No se pudo iniciar sesion de entrenador"
-                )
+            _isAuthenticating.value = true
+            _authError.value = null
+            val normalized = email.trim().lowercase()
+            if (!isValidEmail(normalized)) {
+                _authError.value = "Ingresa un correo electrónico válido"
+                _isAuthenticating.value = false
                 return@launch
             }
+            if (password.isBlank()) {
+                _authError.value = "Ingresa tu contraseña"
+                _isAuthenticating.value = false
+                return@launch
+            }
+            val result = firebaseRepository.signInTrainer(normalized, password)
+            if (result.isFailure) {
+                _authError.value = mapAuthError(result.exceptionOrNull())
+                _isAuthenticating.value = false
+                return@launch
+            }
+            _isAuthenticating.value = false
+            missionRepository.onDailyLogin()
             _uiState.value = AuthUiState.Trainer
         }
     }
 
     fun signInAdmin(email: String, password: String) {
+        if (_isAuthenticating.value) return
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            val result = firebaseRepository.signInAdmin(email, password)
-            if (result.isFailure) {
-                _uiState.value = AuthUiState.Error(result.exceptionOrNull()?.message ?: "No se pudo iniciar sesion")
+            _isAuthenticating.value = true
+            _authError.value = null
+            val normalized = email.trim().lowercase()
+            if (!isValidEmail(normalized)) {
+                _authError.value = "Ingresa un correo electrónico válido"
+                _isAuthenticating.value = false
                 return@launch
             }
+            if (password.isBlank()) {
+                _authError.value = "Ingresa tu contraseña"
+                _isAuthenticating.value = false
+                return@launch
+            }
+            val result = firebaseRepository.signInAdmin(normalized, password)
+            if (result.isFailure) {
+                _authError.value = mapAuthError(result.exceptionOrNull())
+                _isAuthenticating.value = false
+                return@launch
+            }
+            _isAuthenticating.value = false
             _uiState.value = AuthUiState.Admin
         }
     }
@@ -89,13 +149,56 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             app.clearAllLocalData()
             firebaseRepository.signOut()
+            _authError.value = null
             _uiState.value = AuthUiState.LoggedOut
         }
     }
 
     fun clearError() {
-        if (_uiState.value is AuthUiState.Error) {
-            _uiState.value = AuthUiState.LoggedOut
+        _authError.value = null
+    }
+
+    private fun isValidEmail(email: String): Boolean {
+        return email.isNotBlank() && Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    }
+
+    private fun mapAuthError(exception: Throwable?): String {
+        if (exception == null) return "Ocurrió un error inesperado"
+
+        return when (exception) {
+            is FirebaseAuthInvalidCredentialsException ->
+                "Correo o contraseña incorrectos"
+            is FirebaseAuthInvalidUserException ->
+                "No existe una cuenta con este correo"
+            is FirebaseAuthUserCollisionException ->
+                "Ya existe una cuenta con este correo"
+            is FirebaseAuthWeakPasswordException ->
+                "La contraseña debe tener al menos 6 caracteres"
+            else -> {
+                val msg = exception.message ?: ""
+                when {
+                    msg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
+                    msg.contains("INVALID_EMAIL", ignoreCase = true) ->
+                        "Correo o contraseña incorrectos"
+                    msg.contains("USER_NOT_FOUND", ignoreCase = true) ->
+                        "No existe una cuenta con este correo"
+                    msg.contains("EMAIL_EXISTS", ignoreCase = true) ||
+                    msg.contains("already in use", ignoreCase = true) ->
+                        "Ya existe una cuenta con este correo"
+                    msg.contains("WEAK_PASSWORD", ignoreCase = true) ->
+                        "La contraseña debe tener al menos 6 caracteres"
+                    msg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ||
+                    msg.contains("BLOCKED", ignoreCase = true) ->
+                        "Demasiados intentos. Intenta más tarde"
+                    msg.contains("NETWORK", ignoreCase = true) ->
+                        "Error de conexión. Verifica tu internet"
+                    msg.contains("@senati.pe", ignoreCase = true) ->
+                        "Para registrarte como entrenador debes usar un correo @senati.pe"
+                    msg.contains("admin", ignoreCase = true) ->
+                        msg
+                    else -> msg.ifBlank { "Ocurrió un error inesperado" }
+                }
+            }
         }
     }
 }

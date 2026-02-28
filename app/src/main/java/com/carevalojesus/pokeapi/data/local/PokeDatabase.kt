@@ -11,9 +11,11 @@ import androidx.room.RoomDatabase
         UserProfileEntity::class,
         OwnedPokemonEntity::class,
         UnlockedPokemonEntity::class,
-        TradeEntity::class
+        TradeEntity::class,
+        PointEventEntity::class,
+        MarketplaceItemEntity::class
     ],
-    version = 4
+    version = 7
 )
 abstract class PokeDatabase : RoomDatabase() {
 
@@ -22,6 +24,8 @@ abstract class PokeDatabase : RoomDatabase() {
     abstract fun ownedPokemonDao(): OwnedPokemonDao
     abstract fun unlockedPokemonDao(): UnlockedPokemonDao
     abstract fun tradeDao(): TradeDao
+    abstract fun pointEventDao(): PointEventDao
+    abstract fun marketplaceItemDao(): MarketplaceItemDao
 
     companion object {
         @Volatile

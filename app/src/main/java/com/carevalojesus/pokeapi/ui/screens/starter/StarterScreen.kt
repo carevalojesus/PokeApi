@@ -48,7 +48,7 @@ fun StarterScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         Text(
-            text = "Elige tu Pokemon inicial",
+            text = "Elige tu Pokémon inicial",
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center
         )
@@ -56,7 +56,7 @@ fun StarterScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Este Pokemon te acompanara en tu aventura",
+            text = "Este Pokémon te acompañará en tu aventura",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
