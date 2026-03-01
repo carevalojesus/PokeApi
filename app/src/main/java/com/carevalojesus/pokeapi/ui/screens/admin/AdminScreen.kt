@@ -112,6 +112,8 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -2489,31 +2491,38 @@ private fun saveQrBatchToDownloads(
 
 private fun saveBitmapToDownloads(context: Context, bitmap: Bitmap, fileName: String): Boolean {
     return runCatching {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val appDownloadsDir = File(
+                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                "PokeApiQR"
+            )
+            if (!appDownloadsDir.exists()) {
+                appDownloadsDir.mkdirs()
+            }
+            val outputFile = File(appDownloadsDir, fileName)
+            FileOutputStream(outputFile).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+            return true
+        }
+
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(
-                    MediaStore.MediaColumns.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/PokeApiQR"
-                )
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
-            }
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                Environment.DIRECTORY_DOWNLOADS + "/PokeApiQR"
+            )
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
-        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Files.getContentUri("external")
-        }
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val uri = resolver.insert(collection, values) ?: return false
         val writeOk = resolver.openOutputStream(uri)?.use { output ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
         } ?: false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val ready = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
-            resolver.update(uri, ready, null, null)
-        }
+        val ready = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+        resolver.update(uri, ready, null, null)
         if (!writeOk) {
             resolver.delete(uri, null, null)
         }

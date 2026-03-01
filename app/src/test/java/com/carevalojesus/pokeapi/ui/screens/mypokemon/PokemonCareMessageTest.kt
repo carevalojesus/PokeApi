@@ -21,4 +21,38 @@ class PokemonCareMessageTest {
         val message = buildPokemonCareMessage("Pikachu", state)
         assertTrue(message.contains("hambre", ignoreCase = true))
     }
+
+    @Test
+    fun buildPokemonCareMessage_sleepingWantsWake_mentionsWake() {
+        val state = PokemonCareState(
+            pokemonId = 25,
+            hunger = 70,
+            energy = 96,
+            happiness = 70,
+            sleeping = true,
+            wantsToWakeUp = true,
+            updatedAtMillis = 0L
+        )
+
+        val message = buildPokemonCareMessage("Pikachu", state)
+        assertTrue(message.contains("despert", ignoreCase = true))
+    }
+
+    @Test
+    fun buildPokemonCareMessage_penalty_mentionsPointsLost() {
+        val state = PokemonCareState(
+            pokemonId = 25,
+            hunger = 0,
+            energy = 10,
+            happiness = 20,
+            sleeping = false,
+            wantsToWakeUp = false,
+            updatedAtMillis = 0L,
+            lastPenaltyPoints = 35
+        )
+
+        val message = buildPokemonCareMessage("Pikachu", state)
+        assertTrue(message.contains("35"))
+        assertTrue(message.contains("puntos", ignoreCase = true))
+    }
 }

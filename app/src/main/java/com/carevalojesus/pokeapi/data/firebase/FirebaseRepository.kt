@@ -1736,6 +1736,7 @@ class FirebaseRepository(
                 .await()
                 .documents
             for (campaignDoc in campaignDocs) {
+                deleteSubcollection(campaignDoc.reference.collection(CODES))
                 deleteSubcollection(campaignDoc.reference.collection(CLAIMS))
                 campaignDoc.reference.delete().await()
             }

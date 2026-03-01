@@ -356,7 +356,8 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
 
       match /codes/{codeId} {
-        allow read: if signedIn();
+        allow get: if signedIn();
+        allow list: if isAdmin();
         allow create: if isAdmin() && validCampaignCodeCreate();
         allow update: if signedIn() && validCampaignCodeClaimUpdate();
         allow delete: if isAdmin();

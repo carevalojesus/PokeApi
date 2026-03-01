@@ -23,4 +23,19 @@ class RewardPayloadParserTest {
         assertEquals("legacy-campaign-id", parsed.campaignId)
         assertNull(parsed.codeId)
     }
+
+    @Test
+    fun parseRewardPayload_missingCampaignId_returnsNull() {
+        val parsed = parseRewardPayload("pokeapi://reward?codeId=abc123")
+        assertNull(parsed)
+    }
+
+    @Test
+    fun parseRewardPayload_urlEncodedValues_areDecoded() {
+        val parsed = parseRewardPayload("pokeapi://reward?campaignId=camp%201&codeId=code%202")
+
+        requireNotNull(parsed)
+        assertEquals("camp 1", parsed.campaignId)
+        assertEquals("code 2", parsed.codeId)
+    }
 }
