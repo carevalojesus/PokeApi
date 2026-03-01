@@ -1,5 +1,11 @@
 package com.carevalojesus.pokeapi.ui.screens.admin
 
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -70,6 +77,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,10 +94,13 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import com.carevalojesus.pokeapi.data.firebase.AppNotification
 import com.carevalojesus.pokeapi.data.firebase.CampaignInfo
+import com.carevalojesus.pokeapi.data.firebase.CampaignQrCodeData
 import com.carevalojesus.pokeapi.data.firebase.TrainerRewardClaim
 import com.carevalojesus.pokeapi.data.firebase.TrainerWithInventory
 import com.carevalojesus.pokeapi.ui.notifications.NotificationsScreen
@@ -98,6 +109,9 @@ import com.carevalojesus.pokeapi.ui.screens.profile.PasswordChangeState
 import com.carevalojesus.pokeapi.util.PokemonNames
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -115,6 +129,7 @@ fun AdminScreen(
     val notifications by notificationsViewModel.notifications.collectAsState()
     val unreadCount by notificationsViewModel.unreadCount.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    val resetDbState by viewModel.resetDbState.collectAsState()
     var showNotificationsInbox by remember { mutableStateOf(false) }
     var selectedTrainer by remember { mutableStateOf<TrainerWithInventory?>(null) }
 
@@ -263,7 +278,7 @@ fun AdminScreen(
                     onToggle = { id, active -> viewModel.toggleCampaign(id, active) },
                     onDelete = { id -> viewModel.deleteCampaign(id) },
                     onShowQr = { campaign -> viewModel.showCampaignQr(campaign) },
-                    onCreateCampaign = { viewModel.createCampaign(it) }
+                    onCreateCampaign = { name, count -> viewModel.createCampaign(name, count) }
                 )
                 2 -> NotificationsAdminTab(
                     onSendNotification = { title, message ->
@@ -272,7 +287,12 @@ fun AdminScreen(
                     sendStatus = broadcastStatus,
                     onDismissSendStatus = { viewModel.clearBroadcastStatus() }
                 )
-                3 -> AdminProfileTab(onLogout = onLogout)
+                3 -> AdminProfileTab(
+                    onLogout = onLogout,
+                    onResetDatabase = { viewModel.resetDatabase() },
+                    resetDbState = resetDbState,
+                    onClearResetState = { viewModel.clearResetState() }
+                )
             }
         }
     }
@@ -1050,6 +1070,11 @@ private fun CampaignQrDialog(
     state: AdminUiState.CampaignCreated,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloadStatus by remember { mutableStateOf<String?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1124,17 +1149,67 @@ private fun CampaignQrDialog(
                     color = MaterialTheme.colorScheme.outline,
                     textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "QR generados: ${state.qrCodes.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                if (downloadStatus != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = downloadStatus!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Aceptar", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Cerrar", style = MaterialTheme.typography.titleSmall)
+                    }
+                    Button(
+                        onClick = {
+                            if (downloading) return@Button
+                            scope.launch {
+                                downloading = true
+                                val saved = withContext(Dispatchers.IO) {
+                                    saveQrBatchToDownloads(
+                                        context = context,
+                                        campaignName = state.campaignName,
+                                        qrCodes = state.qrCodes
+                                    )
+                                }
+                                downloadStatus = if (saved == state.qrCodes.size) {
+                                    "Descargados $saved/${state.qrCodes.size} QR"
+                                } else {
+                                    "Descargados $saved/${state.qrCodes.size}. Revisa permisos/almacenamiento"
+                                }
+                                downloading = false
+                            }
+                        },
+                        enabled = !downloading && state.qrCodes.isNotEmpty(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            if (downloading) "Descargando..." else "Descargar todos",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
                 }
             }
         }
@@ -1441,14 +1516,16 @@ private fun CampaignsTab(
     onToggle: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onShowQr: (CampaignInfo) -> Unit,
-    onCreateCampaign: (String) -> Unit
+    onCreateCampaign: (String, Int) -> Unit
 ) {
     var deleteTarget by remember { mutableStateOf<CampaignInfo?>(null) }
     var campaignName by remember { mutableStateOf("") }
+    var qrCountText by remember { mutableStateOf("1") }
 
     LaunchedEffect(uiState) {
         if (uiState is AdminUiState.CampaignCreated && uiState.isNewlyCreated) {
             campaignName = ""
+            qrCountText = "1"
         }
     }
 
@@ -1549,7 +1626,7 @@ private fun CampaignsTab(
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Cada entrenador que escanee recibirá 3 Pokémon aleatorios",
+                        text = "Define la cantidad de QR válidos para la campaña",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1571,9 +1648,29 @@ private fun CampaignsTab(
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                             )
                         )
+                        OutlinedTextField(
+                            value = qrCountText,
+                            onValueChange = { input ->
+                                qrCountText = input.filter { it.isDigit() }.take(3)
+                            },
+                            label = { Text("QR") },
+                            modifier = Modifier.width(90.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        )
                         Button(
-                            onClick = { onCreateCampaign(campaignName) },
-                            enabled = campaignName.isNotBlank() && uiState !is AdminUiState.Loading,
+                            onClick = {
+                                val count = qrCountText.toIntOrNull()?.coerceIn(1, 500) ?: 1
+                                onCreateCampaign(campaignName, count)
+                            },
+                            enabled = campaignName.isNotBlank() &&
+                                (qrCountText.toIntOrNull()?.let { it in 1..500 } == true) &&
+                                uiState !is AdminUiState.Loading,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.height(56.dp)
                         ) {
@@ -1699,6 +1796,7 @@ private fun CampaignCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 CampaignStat(label = "Escaneos", value = "${campaign.claimCount}")
+                CampaignStat(label = "QR", value = "${campaign.qrCount}")
                 CampaignStat(label = "Recompensas", value = "${campaign.rewardCount}")
             }
 
@@ -1773,7 +1871,12 @@ private fun CampaignStat(label: String, value: String) {
 // ─── Perfil del admin ────────────────────────────────────────
 
 @Composable
-private fun AdminProfileTab(onLogout: () -> Unit) {
+private fun AdminProfileTab(
+    onLogout: () -> Unit,
+    onResetDatabase: () -> Unit,
+    resetDbState: ResetDbState,
+    onClearResetState: () -> Unit
+) {
     val auth = FirebaseAuth.getInstance()
     val currentUser = auth.currentUser
     val email = currentUser?.email ?: "Sin email"
@@ -1781,6 +1884,7 @@ private fun AdminProfileTab(onLogout: () -> Unit) {
 
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var passwordChangeState by remember { mutableStateOf<PasswordChangeState>(PasswordChangeState.Idle) }
+    var showResetDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -1860,6 +1964,33 @@ private fun AdminProfileTab(onLogout: () -> Unit) {
             Text("Cambiar contraseña")
         }
 
+        // Resetear base de datos
+        Button(
+            onClick = { showResetDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            enabled = resetDbState !is ResetDbState.Loading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFB71C1C)
+            )
+        ) {
+            if (resetDbState is ResetDbState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White
+                )
+            } else {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (resetDbState is ResetDbState.Loading) "Reseteando..." else "Resetear base de datos")
+        }
+
         // Cerrar sesión
         Button(
             onClick = onLogout,
@@ -1877,6 +2008,90 @@ private fun AdminProfileTab(onLogout: () -> Unit) {
             Spacer(modifier = Modifier.width(8.dp))
             Text("Cerrar sesión")
         }
+    }
+
+    // Dialog de confirmación de reset
+    if (showResetDialog) {
+        var confirmText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = {
+                Text(
+                    "Resetear base de datos",
+                    color = Color(0xFFB71C1C),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Esta acción eliminará TODOS los datos:",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("- Todos los entrenadores y sus datos")
+                    Text("- Todas las campañas y claims")
+                    Text("- Todos los intercambios")
+                    Text("- Tu inventario y stats (se resetean a 0)")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tu cuenta de admin se conservará.",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Escribe RESETEAR para confirmar:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    OutlinedTextField(
+                        value = confirmText,
+                        onValueChange = { confirmText = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetDialog = false
+                        onResetDatabase()
+                    },
+                    enabled = confirmText == "RESETEAR"
+                ) {
+                    Text("Confirmar reset", color = Color(0xFFB71C1C))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Dialog de resultado del reset
+    if (resetDbState is ResetDbState.Success) {
+        AlertDialog(
+            onDismissRequest = onClearResetState,
+            title = { Text("Base de datos reseteada") },
+            text = { Text("Todos los datos han sido eliminados. Tu cuenta de admin se ha conservado.") },
+            confirmButton = {
+                TextButton(onClick = onClearResetState) { Text("Aceptar") }
+            }
+        )
+    }
+    if (resetDbState is ResetDbState.Error) {
+        AlertDialog(
+            onDismissRequest = onClearResetState,
+            title = { Text("Error al resetear") },
+            text = { Text((resetDbState as ResetDbState.Error).message) },
+            confirmButton = {
+                TextButton(onClick = onClearResetState) { Text("Aceptar") }
+            }
+        )
     }
 
     if (showChangePasswordDialog) {
@@ -2246,6 +2461,64 @@ private fun NotificationsAdminTab(
 
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
+}
+
+private fun saveQrBatchToDownloads(
+    context: Context,
+    campaignName: String,
+    qrCodes: List<CampaignQrCodeData>
+): Int {
+    val safeCampaign = campaignName
+        .trim()
+        .ifEmpty { "campana" }
+        .replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        .take(40)
+    var saved = 0
+    qrCodes.forEachIndexed { index, qr ->
+        val bitmap = runCatching {
+            com.journeyapps.barcodescanner.BarcodeEncoder()
+                .encodeBitmap(qr.payload, com.google.zxing.BarcodeFormat.QR_CODE, 900, 900)
+        }.getOrNull() ?: return@forEachIndexed
+        val filename = "${safeCampaign}_${(index + 1).toString().padStart(3, '0')}.png"
+        if (saveBitmapToDownloads(context, bitmap, filename)) {
+            saved++
+        }
+    }
+    return saved
+}
+
+private fun saveBitmapToDownloads(context: Context, bitmap: Bitmap, fileName: String): Boolean {
+    return runCatching {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/PokeApiQR"
+                )
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Files.getContentUri("external")
+        }
+        val uri = resolver.insert(collection, values) ?: return false
+        val writeOk = resolver.openOutputStream(uri)?.use { output ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+        } ?: false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val ready = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            resolver.update(uri, ready, null, null)
+        }
+        if (!writeOk) {
+            resolver.delete(uri, null, null)
+        }
+        writeOk
+    }.getOrDefault(false)
 }
 
 // ─── Helpers de presencia ──────────────────────────────────

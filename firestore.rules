@@ -109,6 +109,54 @@ service cloud.firestore {
         request.resource.data.pointsAwarded <= 1000;
     }
 
+    function validPetCarePayload() {
+      return request.resource.data.keys().hasOnly([
+          'pokemonId',
+          'hunger',
+          'energy',
+          'happiness',
+          'sleeping',
+          'updatedAtMillis',
+          'neglectSinceMillis',
+          'lastPenaltyAtMillis',
+          'neglectStrikes',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'pokemonId',
+          'hunger',
+          'energy',
+          'happiness',
+          'sleeping',
+          'updatedAtMillis',
+          'neglectSinceMillis',
+          'lastPenaltyAtMillis',
+          'neglectStrikes'
+        ]) &&
+        request.resource.data.pokemonId is int &&
+        request.resource.data.pokemonId >= 1 &&
+        request.resource.data.pokemonId <= 151 &&
+        request.resource.data.hunger is int &&
+        request.resource.data.hunger >= 0 &&
+        request.resource.data.hunger <= 100 &&
+        request.resource.data.energy is int &&
+        request.resource.data.energy >= 0 &&
+        request.resource.data.energy <= 100 &&
+        request.resource.data.happiness is int &&
+        request.resource.data.happiness >= 0 &&
+        request.resource.data.happiness <= 100 &&
+        request.resource.data.sleeping is bool &&
+        request.resource.data.updatedAtMillis is int &&
+        request.resource.data.updatedAtMillis >= 0 &&
+        request.resource.data.neglectSinceMillis is int &&
+        request.resource.data.neglectSinceMillis >= 0 &&
+        request.resource.data.lastPenaltyAtMillis is int &&
+        request.resource.data.lastPenaltyAtMillis >= 0 &&
+        request.resource.data.neglectStrikes is int &&
+        request.resource.data.neglectStrikes >= 0 &&
+        request.resource.data.neglectStrikes <= 99;
+    }
+
     function validUnlockedPayload() {
       return request.resource.data.keys().hasOnly(['pokemonId', 'unlockedAt']) &&
         request.resource.data.keys().hasAll(['pokemonId']) &&
@@ -150,6 +198,45 @@ service cloud.firestore {
         request.resource.data.read == true;
     }
 
+    function validCampaignCodeCreate() {
+      return request.resource.data.keys().hasOnly([
+          'codeId',
+          'payload',
+          'index',
+          'active',
+          'createdAt'
+        ]) &&
+        request.resource.data.keys().hasAll(['codeId', 'payload', 'index', 'active']) &&
+        request.resource.data.codeId is string &&
+        request.resource.data.codeId.size() >= 8 &&
+        request.resource.data.payload is string &&
+        request.resource.data.payload.size() <= 300 &&
+        request.resource.data.index is int &&
+        request.resource.data.index >= 1 &&
+        request.resource.data.index <= 10000 &&
+        request.resource.data.active == true;
+    }
+
+    function validCampaignCodeClaimUpdate() {
+      return request.resource.data.keys().hasOnly([
+          'codeId',
+          'payload',
+          'index',
+          'active',
+          'createdAt',
+          'claimedBy',
+          'claimedAt'
+        ]) &&
+        resource.data.active == true &&
+        request.resource.data.codeId == resource.data.codeId &&
+        request.resource.data.payload == resource.data.payload &&
+        request.resource.data.index == resource.data.index &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.active == false &&
+        request.resource.data.claimedBy == request.auth.uid &&
+        request.resource.data.claimedAt is timestamp;
+    }
+
     match /trainers/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow create: if signedIn() && (
@@ -160,7 +247,7 @@ service cloud.firestore {
         isAdmin() ||
         validTrainerSelfUpdate(uid)
       );
-      allow delete: if false;
+      allow delete: if isAdmin();
 
       match /inventory/{pokemonId} {
         allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
@@ -171,7 +258,7 @@ service cloud.firestore {
           request.auth.uid == uid &&
           validInventoryPayload() &&
           request.resource.data.pokemonId == resource.data.pokemonId;
-        allow delete: if false;
+        allow delete: if isAdmin();
       }
 
       match /notifications/{notificationId} {
@@ -192,7 +279,8 @@ service cloud.firestore {
         allow create: if signedIn() &&
           request.auth.uid == uid &&
           validMissionEventPayload();
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /unlocked/{pokemonId} {
@@ -204,7 +292,31 @@ service cloud.firestore {
           request.auth.uid == uid &&
           validUnlockedPayload() &&
           request.resource.data.pokemonId == resource.data.pokemonId;
-        allow delete: if false;
+        allow delete: if isAdmin();
+      }
+
+      match /pet_care/{pokemonId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() &&
+          request.auth.uid == uid &&
+          validPetCarePayload();
+        allow update: if signedIn() &&
+          request.auth.uid == uid &&
+          validPetCarePayload() &&
+          request.resource.data.pokemonId == resource.data.pokemonId;
+        allow delete: if isAdmin();
+      }
+
+      match /favorites/{pokemonId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
+      }
+
+      match /marketplace/{itemId} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
       }
     }
 
@@ -236,17 +348,25 @@ service cloud.firestore {
          ])
         )
       );
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /campaigns/{campaignId} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
 
+      match /codes/{codeId} {
+        allow read: if signedIn();
+        allow create: if isAdmin() && validCampaignCodeCreate();
+        allow update: if signedIn() && validCampaignCodeClaimUpdate();
+        allow delete: if isAdmin();
+      }
+
       match /claims/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
         allow create: if signedIn() && request.auth.uid == uid;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
     }
   }

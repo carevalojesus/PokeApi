@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
 import com.carevalojesus.pokeapi.data.firebase.CampaignInfo
+import com.carevalojesus.pokeapi.data.firebase.CampaignQrCodeData
 import com.carevalojesus.pokeapi.data.firebase.TrainerRewardClaim
 import com.carevalojesus.pokeapi.data.firebase.TrainerWithInventory
 import com.google.zxing.BarcodeFormat
@@ -16,13 +17,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+sealed interface ResetDbState {
+    data object Idle : ResetDbState
+    data object Loading : ResetDbState
+    data object Success : ResetDbState
+    data class Error(val message: String) : ResetDbState
+}
+
 sealed interface AdminUiState {
     data object Idle : AdminUiState
     data object Loading : AdminUiState
     data class CampaignCreated(
         val campaignId: String,
         val campaignName: String,
-        val payload: String,
+        val qrCodes: List<CampaignQrCodeData>,
         val bitmap: Bitmap,
         val isNewlyCreated: Boolean = true
     ) : AdminUiState
@@ -51,6 +59,9 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _trainerHistoryLoading = MutableStateFlow(false)
     val trainerHistoryLoading: StateFlow<Boolean> = _trainerHistoryLoading
+
+    private val _resetDbState = MutableStateFlow<ResetDbState>(ResetDbState.Idle)
+    val resetDbState: StateFlow<ResetDbState> = _resetDbState
 
     fun loadTrainerHistory(trainerUid: String) {
         viewModelScope.launch {
@@ -106,10 +117,10 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createCampaign(name: String) {
+    fun createCampaign(name: String, qrCount: Int) {
         viewModelScope.launch {
             _uiState.value = AdminUiState.Loading
-            val result = firebaseRepository.createRewardCampaign(name)
+            val result = firebaseRepository.createRewardCampaign(name, qrCount = qrCount)
             if (result.isFailure) {
                 _uiState.value = AdminUiState.Error(
                     result.exceptionOrNull()?.message ?: "No se pudo crear campaña"
@@ -118,11 +129,13 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val data = result.getOrNull() ?: return@launch
-            val bitmap = BarcodeEncoder().encodeBitmap(data.qrPayload, BarcodeFormat.QR_CODE, 520, 520)
+            val firstPayload = data.qrCodes.firstOrNull()?.payload
+                ?: "pokeapi://reward?campaignId=${data.campaignId}"
+            val bitmap = BarcodeEncoder().encodeBitmap(firstPayload, BarcodeFormat.QR_CODE, 520, 520)
             _uiState.value = AdminUiState.CampaignCreated(
                 campaignId = data.campaignId,
                 campaignName = data.campaignName,
-                payload = data.qrPayload,
+                qrCodes = data.qrCodes,
                 bitmap = bitmap
             )
             refreshCampaigns()
@@ -131,14 +144,24 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
 
     fun showCampaignQr(campaign: CampaignInfo) {
         viewModelScope.launch {
-            val payload = campaign.qrPayload.ifBlank {
-                "pokeapi://reward?campaignId=${campaign.campaignId}"
-            }
-            val bitmap = BarcodeEncoder().encodeBitmap(payload, BarcodeFormat.QR_CODE, 520, 520)
+            val qrCodes = firebaseRepository.getCampaignQrCodes(campaign.campaignId)
+                .getOrDefault(emptyList())
+                .ifEmpty {
+                    val fallbackPayload = campaign.qrPayload.ifBlank {
+                        "pokeapi://reward?campaignId=${campaign.campaignId}"
+                    }
+                    listOf(CampaignQrCodeData(codeId = "legacy", payload = fallbackPayload))
+                }
+            val bitmap = BarcodeEncoder().encodeBitmap(
+                qrCodes.first().payload,
+                BarcodeFormat.QR_CODE,
+                520,
+                520
+            )
             _uiState.value = AdminUiState.CampaignCreated(
                 campaignId = campaign.campaignId,
                 campaignName = campaign.name,
-                payload = payload,
+                qrCodes = qrCodes,
                 bitmap = bitmap,
                 isNewlyCreated = false
             )
@@ -163,6 +186,24 @@ class AdminViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetUiState() {
         _uiState.value = AdminUiState.Idle
+    }
+
+    fun resetDatabase() {
+        viewModelScope.launch {
+            _resetDbState.value = ResetDbState.Loading
+            val result = firebaseRepository.resetDatabaseKeepingAdmin()
+            _resetDbState.value = if (result.isSuccess) {
+                ResetDbState.Success
+            } else {
+                ResetDbState.Error(
+                    result.exceptionOrNull()?.message ?: "No se pudo resetear la base de datos"
+                )
+            }
+        }
+    }
+
+    fun clearResetState() {
+        _resetDbState.value = ResetDbState.Idle
     }
 
     fun clearMessage() {

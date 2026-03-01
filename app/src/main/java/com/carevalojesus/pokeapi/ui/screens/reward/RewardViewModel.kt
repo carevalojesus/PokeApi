@@ -1,7 +1,6 @@
 package com.carevalojesus.pokeapi.ui.screens.reward
 
 import android.app.Application
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.carevalojesus.pokeapi.PokeApiApplication
@@ -37,14 +36,14 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val payload = runCatching { URLDecoder.decode(payloadEncoded, "UTF-8") }.getOrNull()
                 ?: payloadEncoded
-            val campaignId = parseCampaignId(payload)
-            if (campaignId.isNullOrBlank()) {
+            val parsed = parseRewardPayload(payload)
+            if (parsed == null || parsed.campaignId.isBlank()) {
                 _uiState.value = RewardUiState.Error("QR invalido")
                 return@launch
             }
 
             _uiState.value = RewardUiState.Loading
-            when (val result = firebaseRepository.claimRewardFromCampaign(campaignId)) {
+            when (val result = firebaseRepository.claimRewardFromCampaign(parsed.campaignId, parsed.codeId)) {
                 is ClaimRewardResult.Success -> {
                     result.rewardIds.forEach { id ->
                         ownedPokemonRepository.add(
@@ -60,7 +59,7 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
                         val points = app.userRepository.getPoints()
                         app.firebaseRepository.syncTrainerStats(ownedCount, unlockedCount, points)
                     } catch (_: Exception) { }
-                    missionRepository.onRewardQrScanned(campaignId)
+                    missionRepository.onRewardQrScanned(parsed.campaignId)
                     _uiState.value = RewardUiState.Success(
                         rewardIds = result.rewardIds,
                         names = result.rewardIds.map { PokemonNames.getName(it) }
@@ -81,12 +80,33 @@ class RewardViewModel(application: Application) : AndroidViewModel(application) 
     fun reset() {
         _uiState.value = RewardUiState.Idle
     }
+}
 
-    private fun parseCampaignId(payload: String): String? {
-        return if (payload.startsWith("pokeapi://reward")) {
-            Uri.parse(payload).getQueryParameter("campaignId")
+internal data class ParsedRewardPayload(val campaignId: String, val codeId: String?)
+
+internal fun parseRewardPayload(payload: String): ParsedRewardPayload? {
+    return if (payload.startsWith("pokeapi://reward")) {
+        val query = payload.substringAfter('?', "")
+        val params = query
+            .split("&")
+            .mapNotNull { pair ->
+                val key = pair.substringBefore("=", "").trim()
+                if (key.isBlank()) return@mapNotNull null
+                val rawValue = pair.substringAfter("=", "")
+                val value = runCatching { URLDecoder.decode(rawValue, "UTF-8") }.getOrDefault(rawValue)
+                key to value
+            }
+            .toMap()
+        val campaignId = params["campaignId"]
+        if (campaignId.isNullOrBlank()) {
+            null
         } else {
-            payload.takeIf { it.isNotBlank() }
+            ParsedRewardPayload(
+                campaignId = campaignId,
+                codeId = params["codeId"]?.takeIf { it.isNotBlank() }
+            )
         }
+    } else {
+        payload.takeIf { it.isNotBlank() }?.let { ParsedRewardPayload(campaignId = it, codeId = null) }
     }
 }

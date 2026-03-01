@@ -20,9 +20,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.carevalojesus.pokeapi.data.repository.AggregatedPokemon
+import com.carevalojesus.pokeapi.data.firebase.PokemonCareState
 import com.carevalojesus.pokeapi.util.PokemonNames
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -57,8 +60,10 @@ fun MyPokemonScreen(
     val aggregatedPokemon by viewModel.aggregatedPokemon.collectAsState()
     val profile by viewModel.profile.collectAsState(initial = null)
     val starterChangeResult by viewModel.starterChangeResult.collectAsState()
+    val careState by viewModel.careState.collectAsState()
 
     var pokemonToChangeStarter by remember { mutableStateOf<AggregatedPokemon?>(null) }
+    var pokemonForCare by remember { mutableStateOf<AggregatedPokemon?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(starterChangeResult) {
@@ -128,7 +133,12 @@ fun MyPokemonScreen(
                             .heightIn(min = 160.dp)
                             .combinedClickable(
                                 onClick = {
-                                    onPokemonClick(pokemon.pokemonId)
+                                    if (pokemon.isStarter) {
+                                        pokemonForCare = pokemon
+                                        viewModel.loadPokemonCare(pokemon.pokemonId)
+                                    } else {
+                                        onPokemonClick(pokemon.pokemonId)
+                                    }
                                 },
                                 onLongClick = {
                                     if (!pokemon.isStarter) {
@@ -217,6 +227,21 @@ fun MyPokemonScreen(
         }
     }
 
+    pokemonForCare?.let { pokemon ->
+        PokemonCareDialog(
+            pokemon = pokemon,
+            careState = careState,
+            onDismiss = {
+                pokemonForCare = null
+                viewModel.clearCareError()
+            },
+            onFeed = { viewModel.feedPokemon(pokemon.pokemonId) },
+            onSleep = { viewModel.startSleep(pokemon.pokemonId) },
+            onWake = { viewModel.wakePokemon(pokemon.pokemonId) },
+            onOpenDetail = { onPokemonClick(pokemon.pokemonId) }
+        )
+    }
+
     // Dialog to confirm starter change
     pokemonToChangeStarter?.let { pokemon ->
         val remaining = profile?.starterChangesRemaining ?: 3
@@ -284,6 +309,116 @@ fun MyPokemonScreen(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun PokemonCareDialog(
+    pokemon: AggregatedPokemon,
+    careState: PokemonCareUiState,
+    onDismiss: () -> Unit,
+    onFeed: () -> Unit,
+    onSleep: () -> Unit,
+    onWake: () -> Unit,
+    onOpenDetail: () -> Unit
+) {
+    val name = pokemon.nickname.ifEmpty { PokemonNames.getName(pokemon.pokemonId) }
+    val state = careState.state
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cuidar a $name") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (careState.isLoading && state == null) {
+                    Text("Cargando estado...")
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else if (state != null) {
+                    StatBar("Hambre", state.hunger)
+                    StatBar("Energía", state.energy)
+                    StatBar("Ánimo", state.happiness)
+                    Text(
+                        text = careState.aiMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (careState.lastAwardedPoints > 0) {
+                        Text(
+                            text = "+${careState.lastAwardedPoints} puntos (total ${careState.totalPoints})",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if ((state.lastPenaltyPoints) > 0) {
+                        Text(
+                            text = "-${state.lastPenaltyPoints} puntos por descuido",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (state.pokemonLost) {
+                        Text(
+                            text = "Perdiste 1 copia de este Pokémon por descuido",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                if (!careState.error.isNullOrBlank()) {
+                    Text(
+                        text = careState.error!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = onFeed,
+                        enabled = !careState.isLoading && state != null && !(state.sleeping),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Dar comida")
+                    }
+                    Button(
+                        onClick = if (state?.sleeping == true) onWake else onSleep,
+                        enabled = !careState.isLoading && state != null,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (state?.sleeping == true) "Despertar" else "Dormir")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onOpenDetail) {
+                Text("Ver detalle")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar")
+            }
+        }
+    )
+}
+
+@Composable
+private fun StatBar(label: String, value: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text("$value%", style = MaterialTheme.typography.labelLarge)
+        }
+        LinearProgressIndicator(
+            progress = { (value.coerceIn(0, 100) / 100f) },
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }

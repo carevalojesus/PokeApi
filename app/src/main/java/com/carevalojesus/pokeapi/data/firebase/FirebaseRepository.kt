@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
+import kotlin.math.roundToInt
 
 enum class AppUserRole {
     ADMIN,
@@ -25,12 +26,32 @@ enum class AppUserRole {
 data class CampaignQrData(
     val campaignId: String,
     val campaignName: String,
+    val qrCodes: List<CampaignQrCodeData>
+) {
     val qrPayload: String
+        get() = qrCodes.firstOrNull()?.payload ?: "pokeapi://reward?campaignId=$campaignId"
+}
+
+data class CampaignQrCodeData(
+    val codeId: String,
+    val payload: String
 )
 
 data class InventoryCount(
     val pokemonId: Int,
     val count: Int
+)
+
+data class PokemonCareState(
+    val pokemonId: Int,
+    val hunger: Int,
+    val energy: Int,
+    val happiness: Int,
+    val sleeping: Boolean,
+    val wantsToWakeUp: Boolean,
+    val updatedAtMillis: Long,
+    val lastPenaltyPoints: Int = 0,
+    val pokemonLost: Boolean = false
 )
 
 data class TrainerWithInventory(
@@ -57,6 +78,7 @@ data class CampaignInfo(
     val name: String,
     val active: Boolean,
     val rewardCount: Int,
+    val qrCount: Int,
     val createdAt: com.google.firebase.Timestamp?,
     val claimCount: Int,
     val qrPayload: String = ""
@@ -139,13 +161,23 @@ class FirebaseRepository(
         private const val TRAINERS = "trainers"
         private const val CAMPAIGNS = "campaigns"
         private const val CLAIMS = "claims"
+        private const val CODES = "codes"
         private const val NOTIFICATIONS = "notifications"
         private const val TRADES = "trades"
         private const val MISSION_EVENTS = "mission_events"
         private const val UNLOCKED = "unlocked"
         private const val FAVORITES = "favorites"
         private const val MARKETPLACE = "marketplace"
+        private const val PET_CARE = "pet_care"
+        private const val PET_NEGLECT_GRACE_MS = 3 * 60 * 60 * 1000L
+        private const val PET_NEGLECT_PENALTY_COOLDOWN_MS = 4 * 60 * 60 * 1000L
     }
+
+    private data class PetCareMeta(
+        val neglectSinceMillis: Long,
+        val lastPenaltyAtMillis: Long,
+        val neglectStrikes: Int
+    )
 
     suspend fun resolveCurrentUserRole(): AppUserRole? {
         val user = auth.currentUser ?: return null
@@ -202,6 +234,7 @@ class FirebaseRepository(
 
     suspend fun createRewardCampaign(
         campaignName: String,
+        qrCount: Int = 1,
         rewardCount: Int = 3,
         pool: List<Int> = UnlockRepository.UNLOCK_POOL
     ): Result<CampaignQrData> {
@@ -209,30 +242,56 @@ class FirebaseRepository(
             val uid = auth.currentUser?.uid ?: error("Debes iniciar sesion")
             val id = UUID.randomUUID().toString()
             val safeName = campaignName.trim().ifEmpty { "Campana QR" }
-            val payload = "pokeapi://reward?campaignId=$id"
+            val normalizedQrCount = qrCount.coerceIn(1, 500)
+            val codes = (1..normalizedQrCount).map {
+                val codeId = UUID.randomUUID().toString().replace("-", "").take(16)
+                CampaignQrCodeData(
+                    codeId = codeId,
+                    payload = "pokeapi://reward?campaignId=$id&codeId=$codeId"
+                )
+            }
+            val campaignRef = firestore.collection(CAMPAIGNS).document(id)
+            val batch = firestore.batch()
 
-            firestore.collection(CAMPAIGNS).document(id).set(
+            batch.set(
+                campaignRef,
                 mapOf(
                     "campaignId" to id,
                     "name" to safeName,
                     "active" to true,
                     "rewardCount" to rewardCount,
-                    "qrPayload" to payload,
+                    "qrCount" to normalizedQrCount,
+                    "requiresCode" to true,
+                    "qrPayload" to codes.first().payload,
                     "pool" to pool,
                     "createdBy" to uid,
                     "createdAt" to FieldValue.serverTimestamp()
                 )
-            ).await()
+            )
+
+            codes.forEachIndexed { index, code ->
+                batch.set(
+                    campaignRef.collection(CODES).document(code.codeId),
+                    mapOf(
+                        "codeId" to code.codeId,
+                        "payload" to code.payload,
+                        "index" to index + 1,
+                        "active" to true,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                )
+            }
+            batch.commit().await()
 
             CampaignQrData(
                 campaignId = id,
                 campaignName = safeName,
-                qrPayload = payload
+                qrCodes = codes
             )
         }
     }
 
-    suspend fun claimRewardFromCampaign(campaignId: String): ClaimRewardResult {
+    suspend fun claimRewardFromCampaign(campaignId: String, codeId: String? = null): ClaimRewardResult {
         val uid = auth.currentUser?.uid ?: return ClaimRewardResult.Error("Debes iniciar sesion")
 
         return try {
@@ -240,15 +299,32 @@ class FirebaseRepository(
                 val campaignRef = firestore.collection(CAMPAIGNS).document(campaignId)
                 val claimRef = campaignRef.collection(CLAIMS).document(uid)
                 val trainerRef = firestore.collection(TRAINERS).document(uid)
+                val normalizedCodeId = codeId?.trim().orEmpty()
+                val codeRef = if (normalizedCodeId.isNotBlank()) {
+                    campaignRef.collection(CODES).document(normalizedCodeId)
+                } else {
+                    null
+                }
 
                 val campaignSnap = tx.get(campaignRef)
                 if (!campaignSnap.exists()) throw IllegalStateException("Campana no existe")
 
                 val active = campaignSnap.getBoolean("active") ?: false
                 if (!active) throw IllegalStateException("Campana inactiva")
+                val requiresCode = campaignSnap.getBoolean("requiresCode") ?: false
+                if (requiresCode && codeRef == null) {
+                    throw IllegalStateException("QR invalido")
+                }
 
                 val claimSnap = tx.get(claimRef)
                 if (claimSnap.exists()) throw AlreadyClaimedException()
+
+                if (codeRef != null) {
+                    val codeSnap = tx.get(codeRef)
+                    if (!codeSnap.exists()) throw IllegalStateException("QR invalido")
+                    val codeActive = codeSnap.getBoolean("active") ?: false
+                    if (!codeActive) throw IllegalStateException("QR ya utilizado")
+                }
 
                 val rewardCount = (campaignSnap.getLong("rewardCount") ?: 3L).toInt().coerceAtLeast(1)
                 val poolRaw = campaignSnap.get("pool") as? List<*> ?: emptyList<Any>()
@@ -275,10 +351,22 @@ class FirebaseRepository(
                     claimRef,
                     mapOf(
                         "uid" to uid,
+                        "codeId" to normalizedCodeId,
                         "rewardIds" to reward,
                         "claimedAt" to FieldValue.serverTimestamp()
                     )
                 )
+
+                if (codeRef != null) {
+                    tx.update(
+                        codeRef,
+                        mapOf(
+                            "active" to false,
+                            "claimedBy" to uid,
+                            "claimedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
+                }
 
                 tx.set(
                     trainerRef,
@@ -532,6 +620,7 @@ class FirebaseRepository(
                         val name = doc.getString("name") ?: "Sin nombre"
                         val active = doc.getBoolean("active") ?: false
                         val rewardCount = (doc.getLong("rewardCount") ?: 3L).toInt()
+                        val qrCount = (doc.getLong("qrCount") ?: 1L).toInt().coerceAtLeast(1)
                         val createdAt = doc.getTimestamp("createdAt")
                         val qrPayload = doc.getString("qrPayload")
                             ?: "pokeapi://reward?campaignId=$id"
@@ -548,6 +637,7 @@ class FirebaseRepository(
                             name = name,
                             active = active,
                             rewardCount = rewardCount,
+                            qrCount = qrCount,
                             createdAt = createdAt,
                             claimCount = claimCount,
                             qrPayload = qrPayload
@@ -564,6 +654,24 @@ class FirebaseRepository(
         }
     }
 
+    suspend fun getCampaignQrCodes(campaignId: String): Result<List<CampaignQrCodeData>> {
+        return runCatching {
+            firestore.collection(CAMPAIGNS)
+                .document(campaignId)
+                .collection(CODES)
+                .orderBy("index", com.google.firebase.firestore.Query.Direction.ASCENDING)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { doc ->
+                    val codeId = doc.getString("codeId") ?: return@mapNotNull null
+                    val payload = doc.getString("payload")
+                        ?: "pokeapi://reward?campaignId=$campaignId&codeId=$codeId"
+                    CampaignQrCodeData(codeId = codeId, payload = payload)
+                }
+        }
+    }
+
     suspend fun deleteCampaign(campaignId: String): Result<Unit> {
         return runCatching {
             val claimsDocs = firestore.collection(CAMPAIGNS)
@@ -573,6 +681,15 @@ class FirebaseRepository(
                 .await()
                 .documents
             for (doc in claimsDocs) {
+                doc.reference.delete().await()
+            }
+            val codeDocs = firestore.collection(CAMPAIGNS)
+                .document(campaignId)
+                .collection(CODES)
+                .get()
+                .await()
+                .documents
+            for (doc in codeDocs) {
                 doc.reference.delete().await()
             }
             firestore.collection(CAMPAIGNS).document(campaignId).delete().await()
@@ -732,6 +849,142 @@ class FirebaseRepository(
                 ),
                 SetOptions.merge()
             )
+        }.await()
+    }
+
+    suspend fun getPokemonCareState(pokemonId: Int): PokemonCareState {
+        val uid = auth.currentUser?.uid ?: error("Debes iniciar sesión")
+        require(pokemonId in 1..151) { "pokemonId inválido" }
+
+        val careRef = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection(PET_CARE)
+            .document(pokemonId.toString())
+
+        val now = System.currentTimeMillis()
+        return firestore.runTransaction { tx ->
+            val snapshot = tx.get(careRef)
+            val current = readAndDecayCareState(snapshot, pokemonId, now)
+            val meta = readPetCareMeta(snapshot)
+            val (next, nextMeta) = applyNeglectConsequences(
+                tx = tx,
+                trainerRef = firestore.collection(TRAINERS).document(uid),
+                pokemonId = pokemonId,
+                state = current,
+                meta = meta,
+                nowMillis = now
+            )
+            tx.set(careRef, toCareMap(next, nextMeta), SetOptions.merge())
+            next
+        }.await()
+    }
+
+    suspend fun feedPokemon(pokemonId: Int): PokemonCareState {
+        val uid = auth.currentUser?.uid ?: error("Debes iniciar sesión")
+        require(pokemonId in 1..151) { "pokemonId inválido" }
+
+        val careRef = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection(PET_CARE)
+            .document(pokemonId.toString())
+
+        val now = System.currentTimeMillis()
+        return firestore.runTransaction { tx ->
+            val snapshot = tx.get(careRef)
+            val current = readAndDecayCareState(snapshot, pokemonId, now)
+            val meta = readPetCareMeta(snapshot)
+            val afterAction = if (current.sleeping) {
+                current
+            } else {
+                current.copy(
+                    hunger = (current.hunger + 28).coerceAtMost(100),
+                    happiness = (current.happiness + 8).coerceAtMost(100),
+                    updatedAtMillis = now
+                )
+            }
+            val (next, nextMeta) = applyNeglectConsequences(
+                tx = tx,
+                trainerRef = firestore.collection(TRAINERS).document(uid),
+                pokemonId = pokemonId,
+                state = afterAction,
+                meta = meta,
+                nowMillis = now
+            )
+            tx.set(careRef, toCareMap(next, nextMeta), SetOptions.merge())
+            next
+        }.await()
+    }
+
+    suspend fun startPokemonSleep(pokemonId: Int): PokemonCareState {
+        val uid = auth.currentUser?.uid ?: error("Debes iniciar sesión")
+        require(pokemonId in 1..151) { "pokemonId inválido" }
+
+        val careRef = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection(PET_CARE)
+            .document(pokemonId.toString())
+
+        val now = System.currentTimeMillis()
+        return firestore.runTransaction { tx ->
+            val snapshot = tx.get(careRef)
+            val current = readAndDecayCareState(snapshot, pokemonId, now)
+            val meta = readPetCareMeta(snapshot)
+            val afterAction = if (current.sleeping) {
+                current
+            } else {
+                current.copy(
+                    sleeping = true,
+                    happiness = (current.happiness + 4).coerceAtMost(100),
+                    updatedAtMillis = now
+                )
+            }
+            val (next, nextMeta) = applyNeglectConsequences(
+                tx = tx,
+                trainerRef = firestore.collection(TRAINERS).document(uid),
+                pokemonId = pokemonId,
+                state = afterAction,
+                meta = meta,
+                nowMillis = now
+            )
+            tx.set(careRef, toCareMap(next, nextMeta), SetOptions.merge())
+            next
+        }.await()
+    }
+
+    suspend fun wakePokemon(pokemonId: Int): PokemonCareState {
+        val uid = auth.currentUser?.uid ?: error("Debes iniciar sesión")
+        require(pokemonId in 1..151) { "pokemonId inválido" }
+
+        val careRef = firestore.collection(TRAINERS)
+            .document(uid)
+            .collection(PET_CARE)
+            .document(pokemonId.toString())
+
+        val now = System.currentTimeMillis()
+        return firestore.runTransaction { tx ->
+            val snapshot = tx.get(careRef)
+            val current = readAndDecayCareState(snapshot, pokemonId, now)
+            val meta = readPetCareMeta(snapshot)
+            val afterAction = if (!current.sleeping) {
+                current
+            } else {
+                current.copy(
+                    sleeping = false,
+                    energy = (current.energy + 10).coerceAtMost(100),
+                    happiness = (current.happiness + 6).coerceAtMost(100),
+                    updatedAtMillis = now
+                )
+            }
+            val (next, nextMeta) = applyNeglectConsequences(
+                tx = tx,
+                trainerRef = firestore.collection(TRAINERS).document(uid),
+                pokemonId = pokemonId,
+                state = afterAction,
+                meta = meta,
+                nowMillis = now
+            )
+            tx.set(careRef, toCareMap(next, nextMeta), SetOptions.merge())
+            next
         }.await()
     }
 
@@ -1130,6 +1383,163 @@ class FirebaseRepository(
         }
     }
 
+    private fun readAndDecayCareState(
+        snapshot: com.google.firebase.firestore.DocumentSnapshot,
+        pokemonId: Int,
+        nowMillis: Long
+    ): PokemonCareState {
+        val base = if (!snapshot.exists()) {
+            PokemonCareState(
+                pokemonId = pokemonId,
+                hunger = 82,
+                energy = 78,
+                happiness = 75,
+                sleeping = false,
+                wantsToWakeUp = false,
+                updatedAtMillis = nowMillis
+            )
+        } else {
+            PokemonCareState(
+                pokemonId = (snapshot.getLong("pokemonId") ?: pokemonId.toLong()).toInt(),
+                hunger = (snapshot.getLong("hunger") ?: 82L).toInt().coerceIn(0, 100),
+                energy = (snapshot.getLong("energy") ?: 78L).toInt().coerceIn(0, 100),
+                happiness = (snapshot.getLong("happiness") ?: 75L).toInt().coerceIn(0, 100),
+                sleeping = snapshot.getBoolean("sleeping") ?: false,
+                wantsToWakeUp = false,
+                updatedAtMillis = snapshot.getLong("updatedAtMillis")
+                    ?: ((snapshot.getTimestamp("updatedAt")?.seconds ?: (nowMillis / 1000L)) * 1000L)
+            )
+        }
+
+        val elapsedMinutes = ((nowMillis - base.updatedAtMillis).coerceAtLeast(0L) / 60_000.0)
+        if (elapsedMinutes <= 0.0) {
+            val wantsWake = base.sleeping && base.energy >= 95
+            return base.copy(wantsToWakeUp = wantsWake, updatedAtMillis = nowMillis)
+        }
+
+        val hours = elapsedMinutes / 60.0
+        val hungerDecay = (hours * 6.0).roundToInt()
+        val awakeEnergyDecay = (hours * 5.0).roundToInt()
+        val sleepEnergyGain = (hours * 12.0).roundToInt()
+        val happinessDelta = when {
+            base.sleeping -> (hours * 2.5).roundToInt()
+            base.hunger < 30 -> -(hours * 6.0).roundToInt()
+            else -> -(hours * 2.0).roundToInt()
+        }
+
+        val nextHunger = (base.hunger - hungerDecay).coerceIn(0, 100)
+        val nextEnergy = if (base.sleeping) {
+            (base.energy + sleepEnergyGain).coerceIn(0, 100)
+        } else {
+            (base.energy - awakeEnergyDecay).coerceIn(0, 100)
+        }
+        val nextHappiness = (base.happiness + happinessDelta).coerceIn(0, 100)
+        val wantsWake = base.sleeping && nextEnergy >= 95
+
+        return base.copy(
+            hunger = nextHunger,
+            energy = nextEnergy,
+            happiness = nextHappiness,
+            wantsToWakeUp = wantsWake,
+            updatedAtMillis = nowMillis
+        )
+    }
+
+    private fun readPetCareMeta(snapshot: com.google.firebase.firestore.DocumentSnapshot): PetCareMeta {
+        return PetCareMeta(
+            neglectSinceMillis = snapshot.getLong("neglectSinceMillis") ?: 0L,
+            lastPenaltyAtMillis = snapshot.getLong("lastPenaltyAtMillis") ?: 0L,
+            neglectStrikes = (snapshot.getLong("neglectStrikes") ?: 0L).toInt().coerceAtLeast(0)
+        )
+    }
+
+    private fun applyNeglectConsequences(
+        tx: com.google.firebase.firestore.Transaction,
+        trainerRef: com.google.firebase.firestore.DocumentReference,
+        pokemonId: Int,
+        state: PokemonCareState,
+        meta: PetCareMeta,
+        nowMillis: Long
+    ): Pair<PokemonCareState, PetCareMeta> {
+        val critical = state.hunger == 0 || state.energy == 0
+        if (!critical) {
+            return state.copy(lastPenaltyPoints = 0, pokemonLost = false) to meta.copy(neglectSinceMillis = 0L)
+        }
+
+        val neglectSince = if (meta.neglectSinceMillis == 0L) nowMillis else meta.neglectSinceMillis
+        val inGrace = nowMillis - neglectSince < PET_NEGLECT_GRACE_MS
+        val inCooldown = meta.lastPenaltyAtMillis > 0L &&
+            nowMillis - meta.lastPenaltyAtMillis < PET_NEGLECT_PENALTY_COOLDOWN_MS
+
+        if (inGrace || inCooldown) {
+            return state.copy(lastPenaltyPoints = 0, pokemonLost = false) to meta.copy(neglectSinceMillis = neglectSince)
+        }
+
+        val trainerSnap = tx.get(trainerRef)
+        val currentPoints = (trainerSnap.getLong("points") ?: 0L).toInt()
+        val basePenalty = (25 + (meta.neglectStrikes * 10)).coerceAtMost(80)
+        var pointsToLose = basePenalty
+        var pokemonLost = false
+
+        if (meta.neglectStrikes >= 2) {
+            val invRef = trainerRef.collection("inventory").document(pokemonId.toString())
+            val invSnap = tx.get(invRef)
+            val currentCount = (invSnap.getLong("count") ?: 0L).toInt()
+            if (currentCount > 1) {
+                tx.set(
+                    invRef,
+                    mapOf(
+                        "pokemonId" to pokemonId,
+                        "count" to (currentCount - 1),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                )
+                pokemonLost = true
+            } else {
+                pointsToLose += 20
+            }
+        }
+
+        val updatedPoints = (currentPoints - pointsToLose).coerceAtLeast(0)
+        tx.set(
+            trainerRef,
+            mapOf(
+                "points" to updatedPoints,
+                "updatedAt" to FieldValue.serverTimestamp()
+            ),
+            SetOptions.merge()
+        )
+
+        val nextState = state.copy(
+            happiness = (state.happiness - 15).coerceAtLeast(0),
+            updatedAtMillis = nowMillis,
+            lastPenaltyPoints = pointsToLose,
+            pokemonLost = pokemonLost
+        )
+        val nextMeta = meta.copy(
+            neglectSinceMillis = nowMillis,
+            lastPenaltyAtMillis = nowMillis,
+            neglectStrikes = (meta.neglectStrikes + 1).coerceAtMost(99)
+        )
+        return nextState to nextMeta
+    }
+
+    private fun toCareMap(state: PokemonCareState, meta: PetCareMeta): Map<String, Any> {
+        return mapOf(
+            "pokemonId" to state.pokemonId,
+            "hunger" to state.hunger.coerceIn(0, 100),
+            "energy" to state.energy.coerceIn(0, 100),
+            "happiness" to state.happiness.coerceIn(0, 100),
+            "sleeping" to state.sleeping,
+            "updatedAtMillis" to state.updatedAtMillis,
+            "neglectSinceMillis" to meta.neglectSinceMillis,
+            "lastPenaltyAtMillis" to meta.lastPenaltyAtMillis,
+            "neglectStrikes" to meta.neglectStrikes,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+    }
+
     private fun weightedRandomSelection(pool: List<Int>, count: Int): List<Int> {
         if (pool.isEmpty()) return emptyList()
         val ultraRare = setOf(150, 151)       // Mewtwo, Mew: peso 1
@@ -1286,6 +1696,82 @@ class FirebaseRepository(
                 equipped = doc.getBoolean("equipped") ?: false,
                 purchasedAt = doc.getTimestamp("purchasedAt")?.seconds ?: 0L
             )
+        }
+    }
+
+    // ── Reset database ────────────────────────────────────────────
+
+    suspend fun resetDatabaseKeepingAdmin(): Result<Unit> {
+        return runCatching {
+            val uid = auth.currentUser?.uid ?: error("No hay sesión activa")
+            val adminDoc = firestore.collection(TRAINERS).document(uid).get().await()
+            val role = adminDoc.getString("role")?.lowercase()
+            if (role != "admin") error("Solo un admin puede resetear la base de datos")
+
+            // 1. Delete all trainers (role == "trainer") and their subcollections
+            val trainerDocs = firestore.collection(TRAINERS)
+                .whereEqualTo("role", "trainer")
+                .get()
+                .await()
+                .documents
+
+            val trainerSubcollections = listOf(
+                "inventory", UNLOCKED, NOTIFICATIONS, MISSION_EVENTS,
+                FAVORITES, MARKETPLACE, PET_CARE
+            )
+
+            for (trainerDoc in trainerDocs) {
+                for (subcol in trainerSubcollections) {
+                    deleteSubcollection(trainerDoc.reference.collection(subcol))
+                }
+                trainerDoc.reference.delete().await()
+            }
+
+            // 2. Delete all trades
+            deleteSubcollection(firestore.collection(TRADES))
+
+            // 3. Delete all campaigns (with their claims subcollection)
+            val campaignDocs = firestore.collection(CAMPAIGNS)
+                .get()
+                .await()
+                .documents
+            for (campaignDoc in campaignDocs) {
+                deleteSubcollection(campaignDoc.reference.collection(CLAIMS))
+                campaignDoc.reference.delete().await()
+            }
+
+            // 4. Clean admin's own subcollections
+            val adminRef = firestore.collection(TRAINERS).document(uid)
+            for (subcol in trainerSubcollections) {
+                deleteSubcollection(adminRef.collection(subcol))
+            }
+
+            // 5. Reset admin stats
+            adminRef.set(
+                mapOf(
+                    "ownedPokemonCount" to 0,
+                    "unlockedPokemonCount" to 0,
+                    "points" to 0,
+                    "starterChosen" to false,
+                    "starterPokemonId" to 0,
+                    "starterChangesRemaining" to 3,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            ).await()
+        }
+    }
+
+    private suspend fun deleteSubcollection(
+        collection: com.google.firebase.firestore.CollectionReference
+    ) {
+        val docs = collection.get().await().documents
+        if (docs.isEmpty()) return
+        val chunks = docs.chunked(500)
+        for (chunk in chunks) {
+            val batch = firestore.batch()
+            chunk.forEach { doc -> batch.delete(doc.reference) }
+            batch.commit().await()
         }
     }
 
